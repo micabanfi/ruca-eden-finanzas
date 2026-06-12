@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type ReactNode } from "react";
+import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { cancelReservation, restoreReservation, updateReservation } from "@/actions/reservations";
 import type { CancelCharge } from "@/actions/reservations";
@@ -304,10 +304,12 @@ export default function ReservationsTable({
   reservations,
   alerts,
   mode = "active",
+  scrollToToday = false,
 }: {
   reservations: Reservation[];
   alerts: BookingAlert[];
   mode?: "active" | "cancelled";
+  scrollToToday?: boolean;
 }) {
   // res id -> alert labels
   const alertsById = new Map<string, string[]>();
@@ -319,12 +321,32 @@ export default function ReservationsTable({
   }
   const today = new Date().toISOString().slice(0, 10);
 
+  // Las reservas vienen ordenadas por checkin: las viejas arriba, las futuras
+  // abajo. Para no tener que scrollear, al cargar centramos la primera reserva
+  // de hoy en adelante dentro del recuadro de la tabla.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const todayRowRef = useRef<HTMLTableRowElement>(null);
+  const firstFutureIdx = reservations.findIndex((r) => r.checkin >= today);
+  useEffect(() => {
+    if (!scrollToToday) return;
+    const c = containerRef.current;
+    const row = todayRowRef.current;
+    if (!c || !row) return;
+    const cRect = c.getBoundingClientRect();
+    const rRect = row.getBoundingClientRect();
+    // mover SOLO el scroll interno de la tabla (no la ventana)
+    c.scrollTop += rRect.top - cRect.top - c.clientHeight / 2 + rRect.height / 2;
+  }, [scrollToToday]);
+
   const th = "sticky top-0 z-10 border-b border-neutral-300 bg-neutral-100 px-2 py-1 text-left text-xs font-semibold whitespace-nowrap";
   const td = "border-b border-neutral-100 px-2 py-1 whitespace-nowrap";
   const tdR = `${td} text-right tabular-nums`;
 
   return (
-    <div className="max-h-[80vh] overflow-auto rounded border border-neutral-300 text-xs">
+    <div
+      ref={containerRef}
+      className="relative max-h-[80vh] overflow-auto rounded border border-neutral-300 text-xs"
+    >
       <table className="w-full border-collapse">
         <thead>
           <tr>
@@ -335,7 +357,7 @@ export default function ReservationsTable({
           </tr>
         </thead>
         <tbody>
-          {reservations.map((r) => {
+          {reservations.map((r, i) => {
             const future = r.checkin >= today;
             const resAlerts = alertsById.get(r.id) ?? [];
             // de acá en adelante: futuras no-AirBnb sin seña ni método cargado
@@ -348,6 +370,7 @@ export default function ReservationsTable({
             return (
               <tr
                 key={r.id}
+                ref={i === firstFutureIdx ? todayRowRef : undefined}
                 className={`hover:bg-amber-50 ${
                   faltaSenia ? "bg-amber-100" : future ? "bg-sky-50" : "odd:bg-neutral-50"
                 }`}

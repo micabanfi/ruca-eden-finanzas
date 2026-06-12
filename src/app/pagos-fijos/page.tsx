@@ -3,6 +3,7 @@ import PagosFijosMatrix from "@/components/PagosFijosMatrix";
 import { getMonthlySummary, getPagosFijosSheet } from "@/db/pagosFijos";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 30; // serverless: cortar a los 30s, no a los 300
 
 export default async function PagosFijosPage({
   searchParams,

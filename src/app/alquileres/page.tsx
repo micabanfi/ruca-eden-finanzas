@@ -3,6 +3,7 @@ import ReservationForm from "@/components/forms/ReservationForm";
 import { getBookingAlerts, getInvitadaIds, getReservations } from "@/db/reservations";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 30; // serverless: cortar a los 30s, no a los 300
 
 export default async function AlquileresPage() {
   const [reservations, alerts, invitadaIds] = await Promise.all([
@@ -23,7 +24,7 @@ export default async function AlquileresPage() {
         {normales.length} reservas · filas celestes = futuras · alertas:
         solapamientos y check-in/out el mismo día (Ruca y Ruca Chico = misma casa)
       </p>
-      <ReservationsTable reservations={normales} alerts={alerts} />
+      <ReservationsTable reservations={normales} alerts={alerts} scrollToToday />
 
       {invitaciones.length > 0 && (
         <section className="pt-2">

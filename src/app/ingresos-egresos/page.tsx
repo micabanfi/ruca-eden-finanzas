@@ -13,6 +13,7 @@ import {
 } from "@/db/transactions";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 30; // serverless: cortar a los 30s, no a los 300
 
 export default async function IngresosEgresosPage({
   searchParams,

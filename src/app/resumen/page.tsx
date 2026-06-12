@@ -8,6 +8,7 @@ import {
 import { fmtARS, fmtDate, fmtUSD } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 30; // serverless: cortar a los 30s, no a los 300
 
 const th = "border-b border-neutral-300 bg-neutral-100 px-3 py-1 text-right text-xs font-semibold";
 const td = "border-b border-neutral-100 px-3 py-1 text-right tabular-nums";
