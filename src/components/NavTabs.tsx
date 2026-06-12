@@ -7,6 +7,7 @@ const TABS = [
   { href: "/dashboard", label: "📊 Dashboard" },
   { href: "/pagos-fijos", label: "Pagos Fijos" },
   { href: "/alquileres", label: "Alquileres Detalle" },
+  { href: "/calendario", label: "📅 Calendario" },
   { href: "/ingresos-egresos", label: "Ingresos/Egresos" },
   { href: "/resumen", label: "Resumen" },
   { href: "/asistente", label: "✨ Asistente" },

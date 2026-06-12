@@ -14,3 +14,14 @@ export const PAYMENT_METHODS = [
   "Airbnb",
   "Cash",
 ];
+
+// Color de chip por plataforma (compartido por ReservationsTable y el calendario)
+export const PLATFORM_COLORS: Record<string, string> = {
+  AirBnb: "bg-rose-100 text-rose-800",
+  WA: "bg-green-100 text-green-800",
+  Booking: "bg-blue-100 text-blue-800",
+  Instagram: "bg-purple-100 text-purple-800",
+  Meli: "bg-yellow-100 text-yellow-800",
+  Parairnos: "bg-cyan-100 text-cyan-800",
+  Terceros: "bg-neutral-200 text-neutral-700",
+};
