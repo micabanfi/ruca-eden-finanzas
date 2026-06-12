@@ -1,4 +1,4 @@
-import type { MonthReservation } from "@/db/calendar";
+import type { ExtEvent } from "@/lib/ical";
 import { CABINS, PLATFORM_COLORS } from "@/lib/catalog";
 import { fmtDate } from "@/lib/format";
 
@@ -9,27 +9,27 @@ interface Bar {
   start: number; // columna inicial (1-based)
   endEx: number; // columna final exclusiva (grid line)
   lane: number;
-  r: MonthReservation;
+  e: ExtEvent;
 }
 
-/** Asigna cada reserva a la primera "lane" (sub-fila) libre → apila solapamientos. */
-function layout(rows: MonthReservation[], monthStartMs: number, days: number): { bars: Bar[]; lanes: number } {
+/** Asigna cada evento a la primera "lane" (sub-fila) libre → apila solapamientos. */
+function layout(events: ExtEvent[], monthStartMs: number, days: number): { bars: Bar[]; lanes: number } {
   const nextMonthMs = monthStartMs + days * MS_DAY;
-  const placed = rows
-    .map((r) => {
-      const ci = Date.parse(r.checkin);
-      const co = Date.parse(r.checkout); // exclusivo
+  const placed = events
+    .map((e) => {
+      const ci = Date.parse(e.start);
+      const co = Date.parse(e.end); // exclusivo
       const visStart = Math.max(ci, monthStartMs);
       const visLastNight = Math.min(co - MS_DAY, nextMonthMs - MS_DAY);
-      if (visLastNight < visStart) return null; // no tiene noches en este mes
+      if (visLastNight < visStart) return null;
       const startCol = Math.round((visStart - monthStartMs) / MS_DAY) + 1;
       const lastCol = Math.round((visLastNight - monthStartMs) / MS_DAY) + 1;
-      return { start: startCol, endEx: lastCol + 1, lane: 0, r };
+      return { start: startCol, endEx: lastCol + 1, lane: 0, e };
     })
     .filter((b): b is Bar => b !== null)
     .sort((a, b) => a.start - b.start || a.endEx - b.endEx);
 
-  const laneEnds: number[] = []; // última columna ocupada por lane
+  const laneEnds: number[] = [];
   for (const b of placed) {
     let lane = laneEnds.findIndex((end) => end < b.start);
     if (lane === -1) {
@@ -43,11 +43,11 @@ function layout(rows: MonthReservation[], monthStartMs: number, days: number): {
 }
 
 export default function CalendarTimeline({
-  reservations,
+  events,
   mes,
   todayYMD,
 }: {
-  reservations: MonthReservation[];
+  events: ExtEvent[]; // eventos que vienen de los calendarios (Google + Airbnb)
   mes: string; // 'YYYY-MM'
   todayYMD: string;
 }) {
@@ -55,8 +55,7 @@ export default function CalendarTimeline({
   const days = new Date(y, m, 0).getDate();
   const monthStartMs = Date.parse(`${mes}-01`);
   const cabins = CABINS.filter((c) => c !== "TODAS");
-  const todayCol =
-    todayYMD.slice(0, 7) === mes ? Number(todayYMD.slice(8, 10)) : null;
+  const todayCol = todayYMD.slice(0, 7) === mes ? Number(todayYMD.slice(8, 10)) : null;
 
   const cols = `6.5rem repeat(${days}, minmax(1.4rem, 1fr))`;
 
@@ -86,8 +85,8 @@ export default function CalendarTimeline({
 
         {/* una fila por cabaña */}
         {cabins.map((cabin) => {
-          const rows = reservations.filter((r) => r.cabin === cabin);
-          const { bars, lanes } = layout(rows, monthStartMs, days);
+          const evs = events.filter((e) => e.cabin === cabin);
+          const { bars, lanes } = layout(evs, monthStartMs, days);
           return (
             <div
               key={cabin}
@@ -97,17 +96,15 @@ export default function CalendarTimeline({
               <div className="flex items-center border-r border-neutral-200 px-2 py-1 font-medium">
                 {cabin}
               </div>
-              {/* celdas de fondo (líneas de días + hoy) */}
+              {/* celdas de fondo (líneas + hoy) */}
               {Array.from({ length: days }, (_, i) => (
                 <div
                   key={`bg${i}`}
-                  className={`border-l border-neutral-100 ${
-                    i + 1 === todayCol ? "bg-amber-100/50" : ""
-                  }`}
+                  className={`border-l border-neutral-100 ${i + 1 === todayCol ? "bg-amber-100/50" : ""}`}
                   style={{ gridColumn: i + 2, gridRow: 1 }}
                 />
               ))}
-              {/* sub-grid de barras con lanes */}
+              {/* barras con lanes */}
               <div
                 className="grid gap-0.5 py-0.5"
                 style={{
@@ -117,20 +114,24 @@ export default function CalendarTimeline({
                   gridTemplateRows: `repeat(${lanes}, 1.25rem)`,
                 }}
               >
-                {bars.map((b) => (
-                  <div
-                    key={b.r.id}
-                    title={`${b.r.cabin} · ${b.r.platform ?? "?"} · ${b.r.guest_name ?? ""}\n${fmtDate(
-                      b.r.checkin,
-                    )} → ${fmtDate(b.r.checkout)}`}
-                    className={`overflow-hidden truncate rounded px-1 text-[10px] leading-5 ${
-                      PLATFORM_COLORS[b.r.platform ?? ""] ?? "bg-neutral-200 text-neutral-700"
-                    }`}
-                    style={{ gridColumn: `${b.start} / ${b.endEx}`, gridRow: b.lane + 1 }}
-                  >
-                    {b.r.guest_name ?? "—"}
-                  </div>
-                ))}
+                {bars.map((b, idx) => {
+                  const e = b.e;
+                  const lbl = e.guest ?? (e.source === "airbnb" ? "Airbnb" : "—");
+                  return (
+                    <div
+                      key={idx}
+                      title={`${e.cabin} · ${e.platform ?? "?"} · ${lbl}\n${fmtDate(e.start)} → ${fmtDate(
+                        e.end,
+                      )}\n(${e.sourceLabel})`}
+                      className={`overflow-hidden truncate rounded px-1 text-[10px] leading-5 ${
+                        PLATFORM_COLORS[e.platform ?? ""] ?? "bg-neutral-200 text-neutral-700"
+                      }`}
+                      style={{ gridColumn: `${b.start} / ${b.endEx}`, gridRow: b.lane + 1 }}
+                    >
+                      {lbl}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           );

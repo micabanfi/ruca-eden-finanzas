@@ -205,6 +205,46 @@ export async function fetchFeedText(url: string, force = false): Promise<string>
   return text;
 }
 
+/** Fuente de calendario (forma estructural; evita importar la capa de DB). */
+export interface FeedSource {
+  kind: "google" | "airbnb";
+  label: string | null;
+  cabin: string | null;
+  ics_url: string;
+}
+
+/** Baja y parsea todas las fuentes activas. Un feed caído no rompe los demás
+ *  (Promise.allSettled) — se reporta en feedErrors. */
+export async function loadFeeds(
+  sources: FeedSource[],
+  force = false,
+): Promise<{ events: ExtEvent[]; feedErrors: { label: string; error: string }[] }> {
+  const events: ExtEvent[] = [];
+  const feedErrors: { label: string; error: string }[] = [];
+  const labelOf = (s: FeedSource) =>
+    s.label ?? (s.kind === "google" ? "Google" : `Airbnb ${s.cabin ?? ""}`.trim());
+  const settled = await Promise.allSettled(
+    sources.map(async (s) => parseFeed(await fetchFeedText(s.ics_url, force), s.kind, labelOf(s), s.cabin)),
+  );
+  settled.forEach((r, i) => {
+    if (r.status === "fulfilled") events.push(...r.value);
+    else
+      feedErrors.push({
+        label: labelOf(sources[i]),
+        error: r.reason instanceof Error ? r.reason.message : String(r.reason),
+      });
+  });
+  return { events, feedErrors };
+}
+
+/** Eventos que solapan el mes 'YYYY-MM'. */
+export function eventsForMonth(events: ExtEvent[], mes: string): ExtEvent[] {
+  const start = `${mes}-01`;
+  const [y, m] = mes.split("-").map(Number);
+  const next = `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, "0")}-01`;
+  return events.filter((e) => e.start < next && e.end > start);
+}
+
 // ── diff / overbook ─────────────────────────────────────────────────────────
 
 export interface DateMismatch {

@@ -6,14 +6,7 @@ import type { ActionResult } from "@/actions/transactions";
 import { getCalendarSources } from "@/db/calendar";
 import { getReservations } from "@/db/reservations";
 import { CABINS } from "@/lib/catalog";
-import {
-  computeDiff,
-  fetchFeedText,
-  parseFeed,
-  type AppRes,
-  type DiffResult,
-  type ExtEvent,
-} from "@/lib/ical";
+import { computeDiff, loadFeeds, type AppRes, type DiffResult } from "@/lib/ical";
 
 // ── ABM de fuentes (soft-delete con active, nunca DELETE) ───────────────────
 
@@ -72,26 +65,7 @@ export async function runCalendarDiff(force = false): Promise<DiffResponse> {
     if (active.length === 0)
       return { ok: false, error: "No hay fuentes de calendario cargadas todavía." };
 
-    const feedErrors: { label: string; error: string }[] = [];
-    const settled = await Promise.allSettled(
-      active.map(async (s) => {
-        const text = await fetchFeedText(s.ics_url, force);
-        const label =
-          s.label ?? (s.kind === "google" ? "Google" : `Airbnb ${s.cabin ?? ""}`.trim());
-        return parseFeed(text, s.kind, label, s.cabin);
-      }),
-    );
-    const ext: ExtEvent[] = [];
-    settled.forEach((r, i) => {
-      if (r.status === "fulfilled") {
-        ext.push(...r.value);
-      } else {
-        const s = active[i];
-        const label = s.label ?? `${s.kind} ${s.cabin ?? ""}`.trim();
-        const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
-        feedErrors.push({ label, error: msg });
-      }
-    });
+    const { events: ext, feedErrors } = await loadFeeds(active, force);
 
     const appRes: AppRes[] = reservations
       .filter((r) => !r.cancelled_at)

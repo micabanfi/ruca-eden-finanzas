@@ -17,25 +17,3 @@ export async function getCalendarSources(): Promise<CalendarSource[]> {
     FROM calendar_sources
     ORDER BY active DESC, kind, cabin NULLS FIRST, id`;
 }
-
-export interface MonthReservation {
-  id: string;
-  checkin: string;
-  checkout: string;
-  cabin: string | null;
-  platform: string | null;
-  guest_name: string | null;
-}
-
-/** Reservas activas que solapan el mes `mes` ('YYYY-MM'), para el timeline. */
-export async function getReservationsForMonth(mes: string): Promise<MonthReservation[]> {
-  const first = `${mes}-01`;
-  return sql<MonthReservation[]>`
-    SELECT id, to_char(checkin,'YYYY-MM-DD') AS checkin,
-           to_char(checkout,'YYYY-MM-DD') AS checkout, cabin, platform, guest_name
-    FROM reservations
-    WHERE cancelled_at IS NULL AND cabin IS NOT NULL AND cabin <> 'TODAS'
-      AND checkout > ${first}::date
-      AND checkin < (${first}::date + INTERVAL '1 month')
-    ORDER BY checkin, id`;
-}
