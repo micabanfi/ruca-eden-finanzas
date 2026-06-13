@@ -38,6 +38,7 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Corre en todas las rutas menos los estáticos (si no, bloquearía CSS/JS/imágenes).
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Corre en todas las rutas menos los estáticos (si no, bloquearía CSS/JS/imágenes)
+  // y menos /c/ (links de contrato que el inquilino abre sin contraseña).
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|c/).*)"],
 };
