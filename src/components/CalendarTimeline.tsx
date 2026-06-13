@@ -20,10 +20,12 @@ function layout(events: ExtEvent[], monthStartMs: number, days: number): { bars:
       const ci = Date.parse(e.start);
       const co = Date.parse(e.end); // exclusivo
       const visStart = Math.max(ci, monthStartMs);
-      const visLastNight = Math.min(co - MS_DAY, nextMonthMs - MS_DAY);
-      if (visLastNight < visStart) return null;
+      // mostramos hasta el DÍA de checkout inclusive (así las salidas/entradas del
+      // mismo día se ven tocándose y el out coincide con lo que figura en Airbnb)
+      const visLast = Math.min(co, nextMonthMs - MS_DAY);
+      if (visLast < visStart) return null;
       const startCol = Math.round((visStart - monthStartMs) / MS_DAY) + 1;
-      const lastCol = Math.round((visLastNight - monthStartMs) / MS_DAY) + 1;
+      const lastCol = Math.round((visLast - monthStartMs) / MS_DAY) + 1;
       return { start: startCol, endEx: lastCol + 1, lane: 0, e };
     })
     .filter((b): b is Bar => b !== null)
@@ -116,16 +118,20 @@ export default function CalendarTimeline({
               >
                 {bars.map((b, idx) => {
                   const e = b.e;
-                  const lbl = e.guest ?? (e.source === "airbnb" ? "Airbnb" : "—");
+                  const isBlocked = e.source === "airbnb" && e.blocked;
+                  const lbl = e.guest ?? e.note ?? (isBlocked ? "bloqueado" : "");
+                  const cls = isBlocked
+                    ? "bg-neutral-200 italic text-neutral-500"
+                    : PLATFORM_COLORS[e.platform ?? ""] ?? "bg-neutral-200 text-neutral-700";
+                  const tipPlat = isBlocked ? "Airbnb (bloqueado)" : e.platform ?? "?";
+                  const tipWho = e.guest ? ` · ${e.guest}` : e.note ? ` · ${e.note}` : "";
                   return (
                     <div
                       key={idx}
-                      title={`${e.cabin} · ${e.platform ?? "?"} · ${lbl}\n${fmtDate(e.start)} → ${fmtDate(
+                      title={`${e.cabin} · ${tipPlat}${tipWho}\nEntra ${fmtDate(e.start)} · Sale ${fmtDate(
                         e.end,
                       )}\n(${e.sourceLabel})`}
-                      className={`overflow-hidden truncate rounded px-1 text-[10px] leading-5 ${
-                        PLATFORM_COLORS[e.platform ?? ""] ?? "bg-neutral-200 text-neutral-700"
-                      }`}
+                      className={`overflow-hidden truncate rounded px-1 text-[10px] leading-5 ${cls}`}
                       style={{ gridColumn: `${b.start} / ${b.endEx}`, gridRow: b.lane + 1 }}
                     >
                       {lbl}

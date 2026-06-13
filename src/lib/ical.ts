@@ -29,6 +29,8 @@ export interface ExtEvent {
   end: string; // YYYY-MM-DD (checkout, exclusivo)
   raw: string; // título crudo
   parsed: boolean; // se detectó cabaña
+  blocked: boolean; // Airbnb "Not available" (bloqueo, no es una reserva real)
+  note: string | null; // dato extra (ej: últimos 4 dígitos del tel en Airbnb)
 }
 
 // ── helpers de fecha / texto ────────────────────────────────────────────────
@@ -153,6 +155,9 @@ export function parseFeed(
     const sum = comp.summary as unknown;
     const raw =
       typeof sum === "string" ? sum : String((sum as { val?: string })?.val ?? sum ?? "");
+    const desc = comp.description as unknown;
+    const descStr =
+      typeof desc === "string" ? desc : String((desc as { val?: string })?.val ?? "");
 
     if (source === "google") {
       const { cabin, platform, guest } = parseGoogleTitle(raw);
@@ -167,9 +172,14 @@ export function parseFeed(
         end,
         raw,
         parsed: cabin != null,
+        blocked: false,
+        note: null,
       });
     } else {
       const cabin = cabinForAirbnb ?? null;
+      // Airbnb: "Reserved" = reserva real; "… Not available" = bloqueo manual.
+      const blocked = /not\s*available|unavailable|blocked|no\s*disponible/i.test(raw);
+      const phone = descStr.match(/Last 4 Digits\)?:?\s*(\d{4})/i)?.[1] ?? null;
       out.push({
         source,
         sourceLabel,
@@ -181,6 +191,8 @@ export function parseFeed(
         end,
         raw,
         parsed: cabin != null,
+        blocked,
+        note: phone ? `tel …${phone}` : null,
       });
     }
   }
@@ -324,21 +336,20 @@ export function computeDiff(
   // B: reservas de la app sin ningún evento de Google que solape su casa
   const B = res.filter((r) => !coveredByGoogle.has(r.id));
 
-  // E: Airbnb bloqueado sin reserva AirBnb cargada que solape
+  // E: Airbnb marca ocupado (reserva o bloqueo) y la app NO tiene NINGUNA reserva
+  // que solape esas fechas en esa casa (sea del canal que sea). Así no marcamos
+  // como error las reservas de WA que ya están cargadas (Airbnb las bloquea igual).
   const E: ExtEvent[] = [];
   for (const e of airbnb) {
-    const hasAppAirbnb = res.some(
-      (r) =>
-        phys(r.cabin) === e.phys &&
-        r.platform === "AirBnb" &&
-        overlaps(r.checkin, r.checkout, e.start, e.end),
+    const hasApp = res.some(
+      (r) => phys(r.cabin) === e.phys && overlaps(r.checkin, r.checkout, e.start, e.end),
     );
-    if (!hasAppAirbnb) E.push(e);
+    if (!hasApp) E.push(e);
   }
 
-  // D: overbook entre "reservas distintas" (app + externos no matcheados A/E),
-  // misma casa física, fechas pisadas, descartando turnover y la misma reserva
-  // vista en dos fuentes.
+  // D: overbook entre reservas distintas. Solo cruzamos app + Google (que SÍ tiene
+  // nombres). Airbnb queda fuera de D: sin nombre no se puede distinguir una
+  // reserva de su propio bloqueo y daría falsos positivos; su chequeo es la cat. E.
   type B0 = { label: string; phys: string | null; start: string; end: string; guest: string | null };
   const bookings: B0[] = [
     ...res.map((r) => ({
@@ -349,7 +360,6 @@ export function computeDiff(
       guest: r.guest_name,
     })),
     ...A.map((e) => ({ label: `${e.sourceLabel} (Google)`, phys: e.phys, start: e.start, end: e.end, guest: e.guest })),
-    ...E.map((e) => ({ label: `${e.sourceLabel} (Airbnb)`, phys: e.phys, start: e.start, end: e.end, guest: e.guest })),
   ];
   const D: OverbookPair[] = [];
   for (let i = 0; i < bookings.length; i++) {
