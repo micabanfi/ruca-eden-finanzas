@@ -90,6 +90,11 @@ export default function CalendarTimeline({
         {cabins.map((cabin) => {
           const evs = items.filter((it) => it.cabin === cabin);
           const { bars, lanes } = layout(evs, monthStartMs, days);
+          // turnover: un día donde una reserva sale (end) y otra entra (start)
+          const starts = new Set(evs.map((e) => e.start));
+          const turnoverCols = [...new Set(evs.map((e) => e.end).filter((d) => starts.has(d)))]
+            .filter((d) => d.slice(0, 7) === mes)
+            .map((d) => Number(d.slice(8, 10)));
           return (
             <div
               key={cabin}
@@ -134,6 +139,28 @@ export default function CalendarTimeline({
                   );
                 })}
               </div>
+              {/* marcadores de turnover (entra y sale el mismo día) */}
+              {turnoverCols.length > 0 && (
+                <div
+                  className="pointer-events-none grid"
+                  style={{
+                    gridColumn: `2 / ${days + 2}`,
+                    gridRow: 1,
+                    gridTemplateColumns: `repeat(${days}, minmax(1.4rem, 1fr))`,
+                  }}
+                >
+                  {turnoverCols.map((col) => (
+                    <span
+                      key={col}
+                      title="Entra y sale el mismo día (turnover)"
+                      className="z-10 self-start text-center text-[10px] font-bold text-amber-700"
+                      style={{ gridColumn: col, gridRow: 1 }}
+                    >
+                      ⇄
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}

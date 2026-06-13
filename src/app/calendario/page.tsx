@@ -53,7 +53,8 @@ export default async function CalendarioPage({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <CalendarMonthNav mes={mes} todayMes={todayMes} />
         <p className="text-xs text-neutral-500">
-          datos de Google Calendar + Airbnb · barras por plataforma · hoy resaltado
+          Alquileres Detalle + Airbnb · barras por plataforma · hoy resaltado · ⇄ = entra y sale el
+          mismo día
         </p>
       </div>
 

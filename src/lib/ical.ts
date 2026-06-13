@@ -1,5 +1,15 @@
 import { parseICS } from "node-ical";
-import { CABINS } from "@/lib/catalog";
+
+// Detección de cabaña en títulos de Google, de más específico a menos. Tolera
+// variantes: "Ruca chico" pegado al guion, y "Coihue"/"Cohiue" (letras cambiadas).
+const CABIN_PATTERNS: [RegExp, string][] = [
+  [/ruca\s*chico/i, "Ruca Chico"],
+  [/ruqui/i, "Ruqui"],
+  [/alerce/i, "Alerce"],
+  [/co[ih]{2}ue/i, "Cohiue"], // coihue / cohiue
+  [/maiten/i, "Maiten"],
+  [/ruca/i, "Ruca"], // al final: "Ruca" es substring de "Ruca Chico"
+];
 
 // ───────────────────────────────────────────────────────────────────────────
 // Lib pura (sin Next / sin "use server"): baja feeds iCal, parsea los eventos,
@@ -105,13 +115,12 @@ export function parseGoogleTitle(summary: string): {
   // sacar notas entre paréntesis y normalizar acentos (Maitén -> Maiten)
   let t = stripAccents((summary ?? "").replace(/\([^)]*\)/g, " "));
 
-  // cabaña: del nombre más largo al más corto ("Ruca Chico" antes que "Ruca")
-  const cabins = CABINS.filter((c) => c !== "TODAS").sort((a, b) => b.length - a.length);
+  // cabaña: patrones ordenados de más específico a menos. Toleran variantes de
+  // Mimi ("Ruca chico-" pegado, "Coihue"/"Cohiue" con letras cambiadas).
   let cabin: string | null = null;
-  for (const c of cabins) {
-    const re = new RegExp(stripAccents(c).replace(/\s+/g, "\\s+"), "i");
+  for (const [re, canon] of CABIN_PATTERNS) {
     if (re.test(t)) {
-      cabin = c;
+      cabin = canon;
       t = t.replace(re, " ");
       break;
     }
@@ -148,7 +157,8 @@ export function parseFeed(
     const comp = data[key];
     if (!comp || comp.type !== "VEVENT") continue;
     if (comp.status === "CANCELLED") continue;
-    if (comp.transparency === "TRANSPARENT") continue;
+    // OJO: NO filtrar por transparency. Los eventos all-day de Google vienen como
+    // "TRANSPARENT" (Disponible) por defecto, y ahí están las reservas de Mimi.
     if (!comp.start || !comp.end) continue;
 
     const start = toLocalYMD(comp.start as Date);
@@ -375,13 +385,16 @@ export function computeDiff(
   airbnbEvents: ExtEvent[],
   feedErrors: { label: string; error: string }[],
   generatedAt: string,
+  today: string, // 'YYYY-MM-DD': el chequeo es de hoy en adelante (lo pasado no importa)
 ): DiffResult {
-  const appAll = appRes.filter((r) => r.cabin && r.cabin !== "TODAS");
-  const airbnb = airbnbEvents.filter((e) => !e.blocked && e.phys);
-  const google = googleEvents.filter((e) => e.phys);
-  const unparsedGoogle = googleEvents.filter((e) => !e.phys);
+  // de hoy en adelante: solo reservas que todavía no terminaron (checkout >= hoy)
+  const future = appRes.filter((r) => r.checkout >= today);
+  const appAll = future.filter((r) => r.cabin && r.cabin !== "TODAS");
+  const airbnb = airbnbEvents.filter((e) => !e.blocked && e.phys && e.end >= today);
+  const google = googleEvents.filter((e) => e.phys && e.end >= today);
+  const unparsedGoogle = googleEvents.filter((e) => !e.phys && e.end >= today);
   const hasGoogle = google.length > 0;
-  const ourCal = buildCalendar(appRes, airbnbEvents);
+  const ourCal = buildCalendar(future, airbnb);
 
   // 🟠 reserva de Airbnb que no está en Alquileres Detalle (por tel o cabaña+fechas)
   const airbnbNotInApp = airbnb.filter((a) => !findAppMatch(a, appAll));

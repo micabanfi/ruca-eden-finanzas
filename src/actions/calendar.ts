@@ -91,9 +91,10 @@ export async function runCalendarDiff(force = false): Promise<DiffResponse> {
     const airbnbEvents = enriched.filter((e) => e.source === "airbnb");
 
     const generatedAt = new Date().toISOString();
+    const today = generatedAt.slice(0, 10);
     return {
       ok: true,
-      result: computeDiff(appRes, googleEvents, airbnbEvents, feedErrors, generatedAt),
+      result: computeDiff(appRes, googleEvents, airbnbEvents, feedErrors, generatedAt, today),
     };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Error inesperado" };
