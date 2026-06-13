@@ -24,6 +24,10 @@ export default function CalendarMonthNav({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const go = (m: string) => startTransition(() => router.push(`/calendario?mes=${m}`));
+  // fuerza re-bajar los feeds ignorando el cache de 1h (el timestamp asegura una
+  // navegación nueva, así el server vuelve a renderizar con datos frescos)
+  const refresh = () =>
+    startTransition(() => router.push(`/calendario?mes=${mes}&fresh=${Date.now()}`));
 
   const [y, m] = mes.split("-").map(Number);
   const label = `${MESES[m - 1]} ${y}`;
@@ -47,6 +51,14 @@ export default function CalendarMonthNav({
           Hoy
         </button>
       )}
+      <button
+        className="ml-2 rounded bg-neutral-100 px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-200 disabled:opacity-60"
+        disabled={pending}
+        onClick={refresh}
+        title="Volver a bajar Google/Airbnb ahora (ignora el cache de 1h)"
+      >
+        ↻ Refrescar calendarios
+      </button>
       {pending && (
         <span className="ml-1 h-4 w-4 animate-spin rounded-full border-2 border-neutral-300 border-t-green-700" />
       )}

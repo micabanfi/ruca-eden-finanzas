@@ -13,18 +13,19 @@ export const maxDuration = 30;
 export default async function CalendarioPage({
   searchParams,
 }: {
-  searchParams: Promise<{ mes?: string }>;
+  searchParams: Promise<{ mes?: string; fresh?: string }>;
 }) {
   const params = await searchParams;
   const todayYMD = new Date().toISOString().slice(0, 10);
   const todayMes = todayYMD.slice(0, 7);
   const mes = /^\d{4}-\d{2}$/.test(params.mes ?? "") ? (params.mes as string) : todayMes;
+  const force = Boolean(params.fresh); // botón "↻ Refrescar": ignora el cache de 1h
 
   const sources = await getCalendarSources();
   const active = sources.filter((s) => s.active);
   // El calendario se llena con lo que viene de los feeds (Google + Airbnb).
   const [{ events: rawEvents, feedErrors }, reservations] = await Promise.all([
-    loadFeeds(active),
+    loadFeeds(active, force),
     getReservations(),
   ]);
 
