@@ -275,20 +275,63 @@ export function applyAirbnbNames(events: ExtEvent[], appRes: AppRes[]): ExtEvent
   });
 }
 
-/** Eventos que solapan el mes 'YYYY-MM'. */
-export function eventsForMonth(events: ExtEvent[], mes: string): ExtEvent[] {
+/** Items (eventos/reservas) que solapan el mes 'YYYY-MM'. */
+export function eventsForMonth<T extends { start: string; end: string }>(
+  events: T[],
+  mes: string,
+): T[] {
   const start = `${mes}-01`;
   const [y, m] = mes.split("-").map(Number);
   const next = `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, "0")}-01`;
   return events.filter((e) => e.start < next && e.end > start);
 }
 
+// ── el "calendario de la app" = Alquileres Detalle (no-Airbnb) + feed Airbnb ──
+
+/** Item del calendario de la app, unificado para dibujar y comparar. Las reservas
+ *  de Airbnb vienen del feed de Airbnb; el resto (WA, Booking…) de Alquileres
+ *  Detalle. Google NO entra acá: es la contraparte de comparación. */
+export interface CalItem {
+  cabin: string | null;
+  phys: string | null;
+  platform: string | null;
+  guest: string | null;
+  start: string;
+  end: string;
+  origin: "app" | "airbnb";
+  note: string | null;
+}
+
+export function buildCalendar(appRes: AppRes[], airbnbEvents: ExtEvent[]): CalItem[] {
+  const appItems: CalItem[] = appRes
+    .filter((r) => r.cabin && r.cabin !== "TODAS" && (r.platform ?? "") !== "AirBnb")
+    .map((r) => ({
+      cabin: r.cabin,
+      phys: phys(r.cabin),
+      platform: r.platform,
+      guest: r.guest_name,
+      start: r.checkin,
+      end: r.checkout,
+      origin: "app",
+      note: null,
+    }));
+  const airItems: CalItem[] = airbnbEvents
+    .filter((e) => !e.blocked && e.phys)
+    .map((e) => ({
+      cabin: e.cabin,
+      phys: e.phys,
+      platform: "AirBnb",
+      guest: e.guest,
+      start: e.start,
+      end: e.end,
+      origin: "airbnb",
+      note: e.note,
+    }));
+  return [...appItems, ...airItems];
+}
+
 // ── diff / overbook ─────────────────────────────────────────────────────────
 
-export interface DateMismatch {
-  event: ExtEvent;
-  app: AppRes;
-}
 export interface OverbookPair {
   phys: string;
   a: { label: string; start: string; end: string; guest: string | null };
@@ -297,13 +340,18 @@ export interface OverbookPair {
 export interface DiffResult {
   generatedAt: string;
   feedErrors: { label: string; error: string }[];
-  unparsed: ExtEvent[]; // eventos de Google donde no se pudo leer la cabaña
-  A: ExtEvent[]; // en Google pero no en la app
-  B: AppRes[]; // en la app pero no en Google
-  C: DateMismatch[]; // coincide pero fechas distintas
-  D: OverbookPair[]; // overbook (misma casa, fechas pisadas)
-  E: ExtEvent[]; // Airbnb bloqueado sin reserva AirBnb en la app
-  counts: { A: number; B: number; C: number; D: number; E: number };
+  hasGoogle: boolean;
+  unparsedGoogle: ExtEvent[]; // eventos de Google sin cabaña reconocible
+  airbnbNotInApp: ExtEvent[]; // 🟠 reserva de Airbnb que no está en Alquileres Detalle
+  notInGoogle: CalItem[]; // 🟡 lo nuestro (app no-Airbnb + Airbnb) que no está en Google
+  googleNotInRecords: ExtEvent[]; // 🟡 Google que no está ni en la app ni en Airbnb
+  overbook: OverbookPair[]; // 🔴 misma casa, fechas pisadas, reservas distintas
+  counts: {
+    airbnbNotInApp: number;
+    notInGoogle: number;
+    googleNotInRecords: number;
+    overbook: number;
+  };
 }
 
 function sameBooking(
@@ -314,95 +362,62 @@ function sameBooking(
   bE: string,
   bg: string | null,
 ): boolean {
-  // misma reserva vista en dos fuentes: solapan y (mismas fechas o mismo nombre)
   if (!overlaps(aS, aE, bS, bE)) return false;
   return sameRange(aS, aE, bS, bE) || fuzzyName(ag, bg);
 }
 
-/** Compara reservas de la app contra eventos externos y arma las categorías A–E. */
+/** Compara el calendario de la app (Alquileres Detalle no-Airbnb + feed Airbnb)
+ *  contra Google. Airbnb queda triple-chequeado (Airbnb ↔ app ↔ Google); el resto
+ *  es app ↔ Google. */
 export function computeDiff(
   appRes: AppRes[],
-  ext: ExtEvent[],
+  googleEvents: ExtEvent[],
+  airbnbEvents: ExtEvent[],
   feedErrors: { label: string; error: string }[],
   generatedAt: string,
 ): DiffResult {
-  const res = appRes.filter((r) => r.cabin && r.cabin !== "TODAS");
-  const parsedExt = ext.filter((e) => e.phys);
-  const unparsed = ext.filter((e) => !e.phys); // google sin cabaña detectable
+  const appAll = appRes.filter((r) => r.cabin && r.cabin !== "TODAS");
+  const airbnb = airbnbEvents.filter((e) => !e.blocked && e.phys);
+  const google = googleEvents.filter((e) => e.phys);
+  const unparsedGoogle = googleEvents.filter((e) => !e.phys);
+  const hasGoogle = google.length > 0;
+  const ourCal = buildCalendar(appRes, airbnbEvents);
 
-  const google = parsedExt.filter((e) => e.source === "google");
-  const airbnb = parsedExt.filter((e) => e.source === "airbnb");
+  // 🟠 reserva de Airbnb que no está en Alquileres Detalle (por tel o cabaña+fechas)
+  const airbnbNotInApp = airbnb.filter((a) => !findAppMatch(a, appAll));
 
-  const A: ExtEvent[] = [];
-  const C: DateMismatch[] = [];
-  const coveredByGoogle = new Set<string>(); // app res id cubierta por algún evento de Google
+  const overlapsGoogle = (p: string | null, s: string, e: string) =>
+    google.some((g) => g.phys === p && overlaps(g.start, g.end, s, e));
 
-  for (const e of google) {
-    const cands = res.filter(
-      (r) => phys(r.cabin) === e.phys && overlaps(r.checkin, r.checkout, e.start, e.end),
-    );
-    // misma reserva, fechas exactas → cubierta, sin discrepancia
-    const exact = cands.find((c) => sameRange(c.checkin, c.checkout, e.start, e.end));
-    if (exact) {
-      coveredByGoogle.add(exact.id);
-      continue;
-    }
-    // misma reserva (mismo nombre) pero fechas distintas → C
-    const named = cands.find((c) => fuzzyName(c.guest_name, e.guest));
-    if (named) {
-      coveredByGoogle.add(named.id);
-      C.push({ event: e, app: named });
-      continue;
-    }
-    // no es la misma reserva (sin candidata o solapa a OTRO huésped) → falta en la
-    // app (A); si solapaba a otra reserva, el overbook lo detecta la sección D.
-    A.push(e);
-  }
+  // 🟡 lo nuestro que no aparece en Google (solo si hay Google cargado)
+  const notInGoogle = hasGoogle
+    ? ourCal.filter((it) => !overlapsGoogle(it.phys, it.start, it.end))
+    : [];
 
-  // B: reservas de la app que no están en Google. Solo tiene sentido si hay al
-  // menos un calendario Google cargado (si no, daría "todas" = ruido).
-  const B = google.length === 0 ? [] : res.filter((r) => !coveredByGoogle.has(r.id));
+  // 🟡 Google que no aparece en nuestros registros (app de cualquier canal + Airbnb)
+  const inRecords = (g: ExtEvent) =>
+    appAll.some((r) => phys(r.cabin) === g.phys && overlaps(r.checkin, r.checkout, g.start, g.end)) ||
+    airbnb.some((a) => a.phys === g.phys && overlaps(a.start, a.end, g.start, g.end));
+  const googleNotInRecords = hasGoogle ? google.filter((g) => !inRecords(g)) : [];
 
-  // E: reservas REALES de Airbnb (NO los bloqueos de limpieza) que no figuran ni
-  // en Alquileres Detalle ni en Google. Es el cross-check clave: "Airbnb tiene
-  // esta reserva y no la cargué en ningún lado".
-  const E: ExtEvent[] = [];
-  for (const e of airbnb) {
-    if (e.blocked) continue; // los bloqueos no importan
-    const inApp = !!findAppMatch(e, res);
-    const inGoogle = google.some(
-      (gv) => gv.phys === e.phys && overlaps(gv.start, gv.end, e.start, e.end),
-    );
-    if (!inApp && !inGoogle) E.push(e);
-  }
-
-  // D: overbook entre reservas distintas. Solo cruzamos app + Google (que SÍ tiene
-  // nombres). Airbnb queda fuera de D: sin nombre no se puede distinguir una
-  // reserva de su propio bloqueo y daría falsos positivos; su chequeo es la cat. E.
-  type B0 = { label: string; phys: string | null; start: string; end: string; guest: string | null };
-  const bookings: B0[] = [
-    ...res.map((r) => ({
-      label: `App · ${r.cabin} · ${r.platform ?? "?"}`,
-      phys: phys(r.cabin),
-      start: r.checkin,
-      end: r.checkout,
-      guest: r.guest_name,
-    })),
-    ...A.map((e) => ({ label: `${e.sourceLabel} (Google)`, phys: e.phys, start: e.start, end: e.end, guest: e.guest })),
-  ];
-  const D: OverbookPair[] = [];
-  for (let i = 0; i < bookings.length; i++) {
-    for (let j = i + 1; j < bookings.length; j++) {
-      const a = bookings[i];
-      const b = bookings[j];
+  // 🔴 overbook: misma casa física, fechas pisadas, reservas distintas, entre los
+  // items de nuestro calendario (app no-Airbnb + Airbnb). Descarta turnover y la
+  // misma reserva vista dos veces.
+  const overbook: OverbookPair[] = [];
+  const lbl = (it: CalItem) =>
+    it.origin === "airbnb" ? `Airbnb · ${it.cabin}` : `App · ${it.cabin} · ${it.platform ?? "?"}`;
+  for (let i = 0; i < ourCal.length; i++) {
+    for (let j = i + 1; j < ourCal.length; j++) {
+      const a = ourCal[i];
+      const b = ourCal[j];
       if (!a.phys || a.phys !== b.phys) continue;
       if (!overlaps(a.start, a.end, b.start, b.end)) continue;
       if (sameTurnover(a.start, a.end, b.start, b.end)) continue;
       if (sameBooking(a.start, a.end, a.guest, b.start, b.end, b.guest)) continue;
-      D.push({
+      overbook.push({
         phys: a.phys,
-        a: { label: a.label, start: a.start, end: a.end, guest: a.guest },
-        b: { label: b.label, start: b.start, end: b.end, guest: b.guest },
+        a: { label: lbl(a), start: a.start, end: a.end, guest: a.guest },
+        b: { label: lbl(b), start: b.start, end: b.end, guest: b.guest },
       });
     }
   }
@@ -410,12 +425,17 @@ export function computeDiff(
   return {
     generatedAt,
     feedErrors,
-    unparsed,
-    A,
-    B,
-    C,
-    D,
-    E,
-    counts: { A: A.length, B: B.length, C: C.length, D: D.length, E: E.length },
+    hasGoogle,
+    unparsedGoogle,
+    airbnbNotInApp,
+    notInGoogle,
+    googleNotInRecords,
+    overbook,
+    counts: {
+      airbnbNotInApp: airbnbNotInApp.length,
+      notInGoogle: notInGoogle.length,
+      googleNotInRecords: googleNotInRecords.length,
+      overbook: overbook.length,
+    },
   };
 }

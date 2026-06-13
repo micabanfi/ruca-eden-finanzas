@@ -5,7 +5,7 @@ import CalendarSources from "@/components/CalendarSources";
 import CalendarTimeline from "@/components/CalendarTimeline";
 import { getCalendarSources } from "@/db/calendar";
 import { getReservations } from "@/db/reservations";
-import { applyAirbnbNames, eventsForMonth, loadFeeds } from "@/lib/ical";
+import { applyAirbnbNames, buildCalendar, eventsForMonth, loadFeeds } from "@/lib/ical";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -29,7 +29,7 @@ export default async function CalendarioPage({
     getReservations(),
   ]);
 
-  // Reservas de la app, para derivar el nombre del huésped de Airbnb (que no lo trae).
+  // Reservas de la app (Alquileres Detalle), no canceladas.
   const appRes = reservations
     .filter((r) => !r.cancelled_at)
     .map((r) => ({
@@ -41,12 +41,12 @@ export default async function CalendarioPage({
       guest_name: r.guest_name,
       phone: r.phone,
     }));
-  const events = applyAirbnbNames(rawEvents, appRes);
 
-  // En la grilla dibujamos SOLO reservas reales (los bloqueos de Airbnb no se dibujan).
-  const drawable = events.filter((e) => !(e.source === "airbnb" && e.blocked));
-  const monthEvents = eventsForMonth(drawable, mes);
-  const unplaceable = monthEvents.filter((e) => !e.cabin).length;
+  // El calendario de la app = Alquileres Detalle (no-Airbnb) + reservas del feed de
+  // Airbnb (con nombre derivado). Google NO se dibuja: es la contraparte de comparación.
+  const airbnbEvents = applyAirbnbNames(rawEvents, appRes).filter((e) => e.source === "airbnb");
+  const calItems = buildCalendar(appRes, airbnbEvents);
+  const monthItems = eventsForMonth(calItems, mes);
 
   return (
     <div className="space-y-3">
@@ -70,14 +70,7 @@ export default async function CalendarioPage({
         </p>
       )}
 
-      <CalendarTimeline events={monthEvents} mes={mes} todayYMD={todayYMD} />
-
-      {unplaceable > 0 && (
-        <p className="text-xs text-neutral-500">
-          ⚠ {unplaceable} evento(s) de este mes sin cabaña reconocible en el título (no se muestran
-          en la grilla). Revisalos en el chequeo de abajo.
-        </p>
-      )}
+      <CalendarTimeline items={monthItems} mes={mes} todayYMD={todayYMD} />
 
       <section className="space-y-1 pt-1">
         <h2 className="text-sm font-semibold text-neutral-700">
@@ -89,7 +82,7 @@ export default async function CalendarioPage({
         <CalendarDiff />
       </section>
 
-      <AirbnbReservations events={events} />
+      <AirbnbReservations events={airbnbEvents} />
 
       <CalendarSources sources={sources} />
     </div>

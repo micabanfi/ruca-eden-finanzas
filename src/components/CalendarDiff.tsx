@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { runCalendarDiff } from "@/actions/calendar";
-import type { DiffResult, ExtEvent } from "@/lib/ical";
+import type { CalItem, DiffResult, ExtEvent } from "@/lib/ical";
 import { fmtDate } from "@/lib/format";
 
 function Range({ start, end }: { start: string; end: string }) {
@@ -19,7 +19,20 @@ function ExtLine({ e }: { e: ExtEvent }) {
       <span className="font-medium">{e.cabin ?? "?"}</span>
       {e.guest && <> · {e.guest}</>}
       {e.platform && <> · {e.platform}</>} · <Range start={e.start} end={e.end} />
-      <span className="ml-1 text-[10px] text-neutral-400">({e.sourceLabel})</span>
+      {e.note && <span className="ml-1 text-[10px] text-neutral-400">({e.note})</span>}
+    </li>
+  );
+}
+
+function ItemLine({ it }: { it: CalItem }) {
+  return (
+    <li className="py-0.5">
+      <span className="font-medium">{it.cabin}</span>
+      {it.guest && <> · {it.guest}</>}
+      {it.platform && <> · {it.platform}</>} · <Range start={it.start} end={it.end} />
+      <span className="ml-1 text-[10px] text-neutral-400">
+        ({it.origin === "airbnb" ? "Airbnb" : "Alquileres Detalle"})
+      </span>
     </li>
   );
 }
@@ -46,7 +59,9 @@ export default function CalendarDiff() {
   }
 
   const c = res?.counts;
-  const allClear = res && c && c.A + c.B + c.C + c.D + c.E === 0 && res.unparsed.length === 0;
+  const allClear =
+    res && c && c.airbnbNotInApp + c.notInGoogle + c.googleNotInRecords + c.overbook === 0 &&
+    res.unparsedGoogle.length === 0;
 
   return (
     <section className="space-y-2">
@@ -90,15 +105,15 @@ export default function CalendarDiff() {
 
           {allClear ? (
             <p className="rounded border border-green-300 bg-green-50 p-2 text-green-800">
-              ✓ Todo coincide entre el calendario y Alquileres Detalle.
+              ✓ Todo coincide.
             </p>
           ) : (
             <>
-              {c && c.D > 0 && (
+              {c && c.overbook > 0 && (
                 <div className={`${box} border-red-400 bg-red-50`}>
-                  <div className={`${h} text-red-800`}>🔴 OVERBOOK — misma casa, fechas pisadas ({c.D})</div>
+                  <div className={`${h} text-red-800`}>🔴 OVERBOOK — misma casa, fechas pisadas ({c.overbook})</div>
                   <ul className="space-y-1">
-                    {res.D.map((o, i) => (
+                    {res.overbook.map((o, i) => (
                       <li key={i} className="text-red-900">
                         <span className="font-semibold">{o.phys}</span>:{" "}
                         {o.a.label} (<Range start={o.a.start} end={o.a.end} />{o.a.guest ? ` · ${o.a.guest}` : ""}) ⚔{" "}
@@ -109,67 +124,52 @@ export default function CalendarDiff() {
                 </div>
               )}
 
-              {c && c.A > 0 && (
-                <div className={`${box} border-amber-300 bg-amber-50`}>
-                  <div className={`${h} text-amber-900`}>🟡 En Google pero NO en Alquileres ({c.A}) — ¿falta cargarla?</div>
-                  <ul>{res.A.map((e, i) => <ExtLine key={i} e={e} />)}</ul>
-                </div>
-              )}
-
-              {c && c.B > 0 && (
-                <div className={`${box} border-sky-300 bg-sky-50`}>
-                  <div className={`${h} text-sky-900`}>🔵 En Alquileres pero NO en Google ({c.B}) — ¿te olvidaste en el calendario?</div>
-                  <ul>
-                    {res.B.map((r) => (
-                      <li key={r.id} className="py-0.5">
-                        <span className="font-medium">{r.cabin}</span>
-                        {r.guest_name && <> · {r.guest_name}</>}
-                        {r.platform && <> · {r.platform}</>} · <Range start={r.checkin} end={r.checkout} />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {c && c.C > 0 && (
-                <div className={`${box} border-amber-300 bg-amber-50`}>
-                  <div className={`${h} text-amber-900`}>🟠 Coincide pero con fechas distintas ({c.C})</div>
-                  <ul className="space-y-1">
-                    {res.C.map((m, i) => (
-                      <li key={i}>
-                        <span className="font-medium">{m.app.cabin}</span> · {m.app.guest_name ?? m.event.guest ?? ""}:{" "}
-                        Google <Range start={m.event.start} end={m.event.end} /> · App{" "}
-                        <Range start={m.app.checkin} end={m.app.checkout} />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {c && c.E > 0 && (
+              {c && c.airbnbNotInApp > 0 && (
                 <div className={`${box} border-orange-300 bg-orange-50`}>
                   <div className={`${h} text-orange-900`}>
-                    🟠 Reservas de Airbnb que faltan ({c.E}) — no están en Alquileres Detalle ni en Google
+                    🟠 Reservas de Airbnb que NO están en Alquileres Detalle ({c.airbnbNotInApp})
                   </div>
-                  <ul>{res.E.map((e, i) => <ExtLine key={i} e={e} />)}</ul>
+                  <ul>{res.airbnbNotInApp.map((e, i) => <ExtLine key={i} e={e} />)}</ul>
+                </div>
+              )}
+
+              {c && c.googleNotInRecords > 0 && (
+                <div className={`${box} border-amber-300 bg-amber-50`}>
+                  <div className={`${h} text-amber-900`}>
+                    🟡 En Google pero NO en la app ni en Airbnb ({c.googleNotInRecords})
+                  </div>
+                  <ul>{res.googleNotInRecords.map((e, i) => <ExtLine key={i} e={e} />)}</ul>
+                </div>
+              )}
+
+              {c && c.notInGoogle > 0 && (
+                <div className={`${box} border-sky-300 bg-sky-50`}>
+                  <div className={`${h} text-sky-900`}>
+                    🟡 En la app / Airbnb pero NO en Google ({c.notInGoogle})
+                  </div>
+                  <ul>{res.notInGoogle.map((it, i) => <ItemLine key={i} it={it} />)}</ul>
+                </div>
+              )}
+
+              {res.unparsedGoogle.length > 0 && (
+                <div className={`${box} border-neutral-300 bg-neutral-50`}>
+                  <div className={h}>No pude leer la cabaña de estos eventos de Google (revisá el título):</div>
+                  <ul className="text-neutral-600">
+                    {res.unparsedGoogle.map((e, i) => (
+                      <li key={i} className="py-0.5">“{e.raw}” · <Range start={e.start} end={e.end} /></li>
+                    ))}
+                  </ul>
                 </div>
               )}
             </>
           )}
 
-          {res.unparsed.length > 0 && (
-            <div className={`${box} border-neutral-300 bg-neutral-50`}>
-              <div className={h}>No pude leer la cabaña de estos eventos de Google (revisá el título):</div>
-              <ul className="text-neutral-600">
-                {res.unparsed.map((e, i) => (
-                  <li key={i} className="py-0.5">
-                    “{e.raw}” · <Range start={e.start} end={e.end} />
-                  </li>
-                ))}
-              </ul>
-            </div>
+          {!res.hasGoogle && (
+            <p className="text-[11px] text-neutral-500">
+              ℹ Cargá un calendario Google para activar los chequeos contra Google (por ahora solo
+              comparo Airbnb ↔ Alquileres Detalle).
+            </p>
           )}
-
           <p className="text-[10px] text-neutral-400">
             Generado {new Date(res.generatedAt).toLocaleString("es-AR")} · cache 1h
           </p>

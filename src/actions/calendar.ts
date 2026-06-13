@@ -6,7 +6,13 @@ import type { ActionResult } from "@/actions/transactions";
 import { getCalendarSources } from "@/db/calendar";
 import { getReservations } from "@/db/reservations";
 import { CABINS } from "@/lib/catalog";
-import { computeDiff, loadFeeds, type AppRes, type DiffResult } from "@/lib/ical";
+import {
+  applyAirbnbNames,
+  computeDiff,
+  loadFeeds,
+  type AppRes,
+  type DiffResult,
+} from "@/lib/ical";
 
 // ── ABM de fuentes (soft-delete con active, nunca DELETE) ───────────────────
 
@@ -65,7 +71,7 @@ export async function runCalendarDiff(force = false): Promise<DiffResponse> {
     if (active.length === 0)
       return { ok: false, error: "No hay fuentes de calendario cargadas todavía." };
 
-    const { events: ext, feedErrors } = await loadFeeds(active, force);
+    const { events, feedErrors } = await loadFeeds(active, force);
 
     const appRes: AppRes[] = reservations
       .filter((r) => !r.cancelled_at)
@@ -79,8 +85,16 @@ export async function runCalendarDiff(force = false): Promise<DiffResponse> {
         phone: r.phone,
       }));
 
+    // derivar nombre de las reservas de Airbnb y separar por origen
+    const enriched = applyAirbnbNames(events, appRes);
+    const googleEvents = enriched.filter((e) => e.source === "google");
+    const airbnbEvents = enriched.filter((e) => e.source === "airbnb");
+
     const generatedAt = new Date().toISOString();
-    return { ok: true, result: computeDiff(appRes, ext, feedErrors, generatedAt) };
+    return {
+      ok: true,
+      result: computeDiff(appRes, googleEvents, airbnbEvents, feedErrors, generatedAt),
+    };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Error inesperado" };
   }

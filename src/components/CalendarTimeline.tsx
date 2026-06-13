@@ -1,4 +1,4 @@
-import type { ExtEvent } from "@/lib/ical";
+import type { CalItem } from "@/lib/ical";
 import { PLATFORM_COLORS } from "@/lib/catalog";
 import { fmtDate } from "@/lib/format";
 
@@ -11,24 +11,23 @@ interface Bar {
   start: number; // columna inicial (1-based)
   endEx: number; // columna final exclusiva (grid line)
   lane: number;
-  e: ExtEvent;
+  it: CalItem;
 }
 
-/** Asigna cada evento a la primera "lane" (sub-fila) libre → apila solapamientos. */
-function layout(events: ExtEvent[], monthStartMs: number, days: number): { bars: Bar[]; lanes: number } {
+/** Asigna cada reserva a la primera "lane" (sub-fila) libre → apila solapamientos. */
+function layout(items: CalItem[], monthStartMs: number, days: number): { bars: Bar[]; lanes: number } {
   const nextMonthMs = monthStartMs + days * MS_DAY;
-  const placed = events
-    .map((e) => {
-      const ci = Date.parse(e.start);
-      const co = Date.parse(e.end); // exclusivo
+  const placed = items
+    .map((it) => {
+      const ci = Date.parse(it.start);
+      const co = Date.parse(it.end);
       const visStart = Math.max(ci, monthStartMs);
-      // mostramos hasta el DÍA de checkout inclusive (así las salidas/entradas del
-      // mismo día se ven tocándose y el out coincide con lo que figura en Airbnb)
+      // hasta el DÍA de checkout inclusive (turnovers se ven tocándose)
       const visLast = Math.min(co, nextMonthMs - MS_DAY);
       if (visLast < visStart) return null;
       const startCol = Math.round((visStart - monthStartMs) / MS_DAY) + 1;
       const lastCol = Math.round((visLast - monthStartMs) / MS_DAY) + 1;
-      return { start: startCol, endEx: lastCol + 1, lane: 0, e };
+      return { start: startCol, endEx: lastCol + 1, lane: 0, it };
     })
     .filter((b): b is Bar => b !== null)
     .sort((a, b) => a.start - b.start || a.endEx - b.endEx);
@@ -47,11 +46,11 @@ function layout(events: ExtEvent[], monthStartMs: number, days: number): { bars:
 }
 
 export default function CalendarTimeline({
-  events,
+  items,
   mes,
   todayYMD,
 }: {
-  events: ExtEvent[]; // eventos que vienen de los calendarios (Google + Airbnb)
+  items: CalItem[]; // calendario de la app = Alquileres Detalle (no-Airbnb) + feed Airbnb
   mes: string; // 'YYYY-MM'
   todayYMD: string;
 }) {
@@ -89,7 +88,7 @@ export default function CalendarTimeline({
 
         {/* una fila por cabaña */}
         {cabins.map((cabin) => {
-          const evs = events.filter((e) => e.cabin === cabin);
+          const evs = items.filter((it) => it.cabin === cabin);
           const { bars, lanes } = layout(evs, monthStartMs, days);
           return (
             <div
@@ -100,7 +99,6 @@ export default function CalendarTimeline({
               <div className="flex items-center border-r border-neutral-200 px-2 py-1 font-medium">
                 {cabin}
               </div>
-              {/* celdas de fondo (líneas + hoy) */}
               {Array.from({ length: days }, (_, i) => (
                 <div
                   key={`bg${i}`}
@@ -108,7 +106,6 @@ export default function CalendarTimeline({
                   style={{ gridColumn: i + 2, gridRow: 1 }}
                 />
               ))}
-              {/* barras con lanes */}
               <div
                 className="grid gap-0.5 py-0.5"
                 style={{
@@ -119,20 +116,16 @@ export default function CalendarTimeline({
                 }}
               >
                 {bars.map((b, idx) => {
-                  const e = b.e;
-                  const isBlocked = e.source === "airbnb" && e.blocked;
-                  const lbl = e.guest ?? e.note ?? (isBlocked ? "bloqueado" : "");
-                  const cls = isBlocked
-                    ? "bg-neutral-200 italic text-neutral-500"
-                    : PLATFORM_COLORS[e.platform ?? ""] ?? "bg-neutral-200 text-neutral-700";
-                  const tipPlat = isBlocked ? "Airbnb (bloqueado)" : e.platform ?? "?";
-                  const tipWho = e.guest ? ` · ${e.guest}` : e.note ? ` · ${e.note}` : "";
+                  const it = b.it;
+                  const lbl = it.guest ?? it.note ?? "";
+                  const cls = PLATFORM_COLORS[it.platform ?? ""] ?? "bg-neutral-200 text-neutral-700";
+                  const origen = it.origin === "airbnb" ? "Airbnb" : "Alquileres Detalle";
                   return (
                     <div
                       key={idx}
-                      title={`${e.cabin} · ${tipPlat}${tipWho}\nEntra ${fmtDate(e.start)} · Sale ${fmtDate(
-                        e.end,
-                      )}\n(${e.sourceLabel})`}
+                      title={`${it.cabin} · ${it.platform ?? "?"}${it.guest ? ` · ${it.guest}` : ""}\nEntra ${fmtDate(
+                        it.start,
+                      )} · Sale ${fmtDate(it.end)}\n(${origen})`}
                       className={`overflow-hidden truncate rounded px-1 text-[10px] leading-5 ${cls}`}
                       style={{ gridColumn: `${b.start} / ${b.endEx}`, gridRow: b.lane + 1 }}
                     >
