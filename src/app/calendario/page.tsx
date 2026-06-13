@@ -1,9 +1,11 @@
+import AirbnbReservations from "@/components/AirbnbReservations";
 import CalendarDiff from "@/components/CalendarDiff";
 import CalendarMonthNav from "@/components/CalendarMonthNav";
 import CalendarSources from "@/components/CalendarSources";
 import CalendarTimeline from "@/components/CalendarTimeline";
 import { getCalendarSources } from "@/db/calendar";
-import { eventsForMonth, loadFeeds } from "@/lib/ical";
+import { getReservations } from "@/db/reservations";
+import { applyAirbnbNames, eventsForMonth, loadFeeds } from "@/lib/ical";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -21,8 +23,28 @@ export default async function CalendarioPage({
   const sources = await getCalendarSources();
   const active = sources.filter((s) => s.active);
   // El calendario se llena con lo que viene de los feeds (Google + Airbnb).
-  const { events, feedErrors } = await loadFeeds(active);
-  const monthEvents = eventsForMonth(events, mes);
+  const [{ events: rawEvents, feedErrors }, reservations] = await Promise.all([
+    loadFeeds(active),
+    getReservations(),
+  ]);
+
+  // Reservas de la app, para derivar el nombre del huésped de Airbnb (que no lo trae).
+  const appRes = reservations
+    .filter((r) => !r.cancelled_at)
+    .map((r) => ({
+      id: r.id,
+      checkin: r.checkin,
+      checkout: r.checkout,
+      cabin: r.cabin,
+      platform: r.platform,
+      guest_name: r.guest_name,
+      phone: r.phone,
+    }));
+  const events = applyAirbnbNames(rawEvents, appRes);
+
+  // En la grilla dibujamos SOLO reservas reales (los bloqueos de Airbnb no se dibujan).
+  const drawable = events.filter((e) => !(e.source === "airbnb" && e.blocked));
+  const monthEvents = eventsForMonth(drawable, mes);
   const unplaceable = monthEvents.filter((e) => !e.cabin).length;
 
   return (
@@ -65,6 +87,8 @@ export default async function CalendarioPage({
         </p>
         <CalendarDiff />
       </section>
+
+      <AirbnbReservations events={events} />
 
       <CalendarSources sources={sources} />
     </div>

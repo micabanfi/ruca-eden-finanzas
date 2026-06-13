@@ -76,6 +76,7 @@ export async function runCalendarDiff(force = false): Promise<DiffResponse> {
         cabin: r.cabin,
         platform: r.platform,
         guest_name: r.guest_name,
+        phone: r.phone,
       }));
 
     const generatedAt = new Date().toISOString();

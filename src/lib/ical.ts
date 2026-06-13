@@ -15,6 +15,7 @@ export interface AppRes {
   cabin: string | null;
   platform: string | null;
   guest_name: string | null;
+  phone: string | null;
 }
 
 /** Evento traído de un calendario externo, ya normalizado. */
@@ -247,6 +248,25 @@ export async function loadFeeds(
       });
   });
   return { events, feedErrors };
+}
+
+/** Completa SOLO el nombre del huésped en las reservas de Airbnb (que no lo traen),
+ *  cruzando contra las reservas de la app por tel (últimos 4 dígitos) o, si no,
+ *  por cabaña + fechas. NO toca fechas ni ningún otro dato del evento de Airbnb. */
+export function applyAirbnbNames(events: ExtEvent[], appRes: AppRes[]): ExtEvent[] {
+  return events.map((e) => {
+    if (e.source !== "airbnb" || e.guest || e.blocked) return e;
+    const last4 = e.note?.match(/(\d{4})/)?.[1] ?? null;
+    let match: AppRes | undefined;
+    if (last4) match = appRes.find((r) => r.phone && r.phone.replace(/\D/g, "").endsWith(last4));
+    if (!match) {
+      const cands = appRes.filter(
+        (r) => phys(r.cabin) === e.phys && overlaps(r.checkin, r.checkout, e.start, e.end),
+      );
+      match = cands.find((r) => sameRange(r.checkin, r.checkout, e.start, e.end)) ?? cands[0];
+    }
+    return match?.guest_name ? { ...e, guest: match.guest_name } : e;
+  });
 }
 
 /** Eventos que solapan el mes 'YYYY-MM'. */
