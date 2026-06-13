@@ -156,11 +156,27 @@ export default function MensajesPanel() {
         <div className="flex flex-wrap gap-3">
           <label className={lbl}>
             Check-in
-            <input type="date" className={input} value={checkin} onChange={(e) => { setCheckin(e.target.value); setShortCode(null); }} />
+            <input
+              type="date"
+              className={input}
+              value={checkin}
+              onChange={(e) => {
+                const v = e.target.value;
+                setCheckin(v);
+                if (checkout && checkout < v) setCheckout(""); // out no puede ser antes del in
+                setShortCode(null);
+              }}
+            />
           </label>
           <label className={lbl}>
             Check-out
-            <input type="date" className={input} value={checkout} onChange={(e) => { setCheckout(e.target.value); setShortCode(null); }} />
+            <input
+              type="date"
+              className={input}
+              value={checkout}
+              min={checkin || undefined}
+              onChange={(e) => { setCheckout(e.target.value); setShortCode(null); }}
+            />
           </label>
           <span className="self-end pb-1 text-xs text-neutral-500">{nights} noche{nights === 1 ? "" : "s"}</span>
         </div>
