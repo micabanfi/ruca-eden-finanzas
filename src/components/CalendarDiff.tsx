@@ -148,7 +148,9 @@ export default function CalendarDiff() {
 
               {c && c.E > 0 && (
                 <div className={`${box} border-orange-300 bg-orange-50`}>
-                  <div className={`${h} text-orange-900`}>🟠 Airbnb bloqueado sin reserva AirBnb cargada ({c.E})</div>
+                  <div className={`${h} text-orange-900`}>
+                    🟠 Reservas de Airbnb que faltan ({c.E}) — no están en Alquileres Detalle ni en Google
+                  </div>
                   <ul>{res.E.map((e, i) => <ExtLine key={i} e={e} />)}</ul>
                 </div>
               )}

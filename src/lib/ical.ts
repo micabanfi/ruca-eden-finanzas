@@ -250,21 +250,27 @@ export async function loadFeeds(
   return { events, feedErrors };
 }
 
+/** Busca la reserva de la app que corresponde a un evento de Airbnb: primero por
+ *  tel (últimos 4 dígitos), si no por cabaña + fechas. */
+function findAppMatch(e: ExtEvent, appRes: AppRes[]): AppRes | undefined {
+  const last4 = e.note?.match(/(\d{4})/)?.[1] ?? null;
+  if (last4) {
+    const byPhone = appRes.find((r) => r.phone && r.phone.replace(/\D/g, "").endsWith(last4));
+    if (byPhone) return byPhone;
+  }
+  const cands = appRes.filter(
+    (r) => phys(r.cabin) === e.phys && overlaps(r.checkin, r.checkout, e.start, e.end),
+  );
+  return cands.find((r) => sameRange(r.checkin, r.checkout, e.start, e.end)) ?? cands[0];
+}
+
 /** Completa SOLO el nombre del huésped en las reservas de Airbnb (que no lo traen),
- *  cruzando contra las reservas de la app por tel (últimos 4 dígitos) o, si no,
- *  por cabaña + fechas. NO toca fechas ni ningún otro dato del evento de Airbnb. */
+ *  cruzando contra las reservas de la app por tel o cabaña + fechas. NO toca
+ *  fechas ni ningún otro dato del evento de Airbnb. */
 export function applyAirbnbNames(events: ExtEvent[], appRes: AppRes[]): ExtEvent[] {
   return events.map((e) => {
     if (e.source !== "airbnb" || e.guest || e.blocked) return e;
-    const last4 = e.note?.match(/(\d{4})/)?.[1] ?? null;
-    let match: AppRes | undefined;
-    if (last4) match = appRes.find((r) => r.phone && r.phone.replace(/\D/g, "").endsWith(last4));
-    if (!match) {
-      const cands = appRes.filter(
-        (r) => phys(r.cabin) === e.phys && overlaps(r.checkin, r.checkout, e.start, e.end),
-      );
-      match = cands.find((r) => sameRange(r.checkin, r.checkout, e.start, e.end)) ?? cands[0];
-    }
+    const match = findAppMatch(e, appRes);
     return match?.guest_name ? { ...e, guest: match.guest_name } : e;
   });
 }
@@ -353,18 +359,21 @@ export function computeDiff(
     A.push(e);
   }
 
-  // B: reservas de la app sin ningún evento de Google que solape su casa
-  const B = res.filter((r) => !coveredByGoogle.has(r.id));
+  // B: reservas de la app que no están en Google. Solo tiene sentido si hay al
+  // menos un calendario Google cargado (si no, daría "todas" = ruido).
+  const B = google.length === 0 ? [] : res.filter((r) => !coveredByGoogle.has(r.id));
 
-  // E: Airbnb marca ocupado (reserva o bloqueo) y la app NO tiene NINGUNA reserva
-  // que solape esas fechas en esa casa (sea del canal que sea). Así no marcamos
-  // como error las reservas de WA que ya están cargadas (Airbnb las bloquea igual).
+  // E: reservas REALES de Airbnb (NO los bloqueos de limpieza) que no figuran ni
+  // en Alquileres Detalle ni en Google. Es el cross-check clave: "Airbnb tiene
+  // esta reserva y no la cargué en ningún lado".
   const E: ExtEvent[] = [];
   for (const e of airbnb) {
-    const hasApp = res.some(
-      (r) => phys(r.cabin) === e.phys && overlaps(r.checkin, r.checkout, e.start, e.end),
+    if (e.blocked) continue; // los bloqueos no importan
+    const inApp = !!findAppMatch(e, res);
+    const inGoogle = google.some(
+      (gv) => gv.phys === e.phys && overlaps(gv.start, gv.end, e.start, e.end),
     );
-    if (!hasApp) E.push(e);
+    if (!inApp && !inGoogle) E.push(e);
   }
 
   // D: overbook entre reservas distintas. Solo cruzamos app + Google (que SÍ tiene

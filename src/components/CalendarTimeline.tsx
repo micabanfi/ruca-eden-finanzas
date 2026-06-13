@@ -1,9 +1,11 @@
 import type { ExtEvent } from "@/lib/ical";
-import { CABINS, PLATFORM_COLORS } from "@/lib/catalog";
+import { PLATFORM_COLORS } from "@/lib/catalog";
 import { fmtDate } from "@/lib/format";
 
 const MS_DAY = 86_400_000;
 const WD = ["D", "L", "M", "M", "J", "V", "S"];
+// orden de filas pedido por Mimi
+const CABIN_ORDER = ["Alerce", "Ruqui", "Ruca", "Ruca Chico", "Cohiue", "Maiten"];
 
 interface Bar {
   start: number; // columna inicial (1-based)
@@ -56,7 +58,7 @@ export default function CalendarTimeline({
   const [y, m] = mes.split("-").map(Number);
   const days = new Date(y, m, 0).getDate();
   const monthStartMs = Date.parse(`${mes}-01`);
-  const cabins = CABINS.filter((c) => c !== "TODAS");
+  const cabins = CABIN_ORDER;
   const todayCol = todayYMD.slice(0, 7) === mes ? Number(todayYMD.slice(8, 10)) : null;
 
   const cols = `6.5rem repeat(${days}, minmax(1.4rem, 1fr))`;
