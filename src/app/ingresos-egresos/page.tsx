@@ -56,7 +56,7 @@ export default async function IngresosEgresosPage({
         <IncomeForm />
         <ExpenseForm categories={categories} />
       </div>
-      <TransactionsTables txs={txs} pendientes={pendientes} />
+      <TransactionsTables txs={txs} pendientes={pendientes} categories={categories} />
     </div>
   );
 }

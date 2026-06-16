@@ -21,6 +21,7 @@ import type {
   MesTarifa,
   NamedAmount,
   PlatformRow,
+  Proyeccion,
   Temporada,
   YearSerie,
 } from "@/db/dashboard";
@@ -64,6 +65,7 @@ export default function DashboardCharts({
   serieAnual,
   tarifaMes,
   temporadas,
+  proyeccion,
 }: {
   kpis: KPIs;
   cabanas: CabinRow[];
@@ -75,6 +77,7 @@ export default function DashboardCharts({
   serieAnual: YearSerie[] | null; // solo en global
   tarifaMes: MesTarifa[] | null; // solo por año
   temporadas: Temporada[] | null; // solo por año
+  proyeccion: Proyeccion | null; // solo año en curso / futuro
 }) {
   const pie = (data: NamedAmount[]) => (
     <ResponsiveContainer width="100%" height={260}>
@@ -101,14 +104,38 @@ export default function DashboardCharts({
           value={usd0(kpis.balance)}
           sub={kpis.balance < 0 ? "negativo" : "positivo"}
         />
-        <Card label="Noches vendidas" value={String(kpis.noches)} />
+        <Card
+          label="Noches vendidas"
+          value={String(kpis.noches)}
+          sub={kpis.noches_disponibles ? `de ${kpis.noches_disponibles} disponibles` : undefined}
+        />
         <Card
           label="Ocupación"
           value={kpis.ocupacion_pct === null ? "—" : `${kpis.ocupacion_pct}%`}
-          sub={kpis.ocupacion_pct === null ? "elegí un año" : "promedio 6 unidades"}
+          sub={kpis.ocupacion_pct === null ? "elegí un año" : "sobre ventana real (sin sept.)"}
         />
         <Card label="Tarifa prom / noche" value={usd0(kpis.tarifa_prom)} sub={`${kpis.reservas} reservas`} />
       </div>
+
+      {/* Proyección fin de año (solo año en curso / futuro) */}
+      {proyeccion && (
+        <div className="rounded border border-green-300 bg-green-50 p-3">
+          <div className="text-xs font-medium text-green-700">
+            Proyección fin de año {alcance}
+          </div>
+          <div className="text-2xl font-bold tabular-nums text-green-900">
+            {usd0(proyeccion.proyeccion)}
+          </div>
+          <div className="mt-0.5 text-xs text-neutral-500">
+            {usd0(proyeccion.cobrado)} ya cobrado{" "}
+            <span className="text-neutral-400">+</span>{" "}
+            {usd0(proyeccion.por_cobrar)} por cobrar de {proyeccion.reservas_futuras} reserva
+            {proyeccion.reservas_futuras === 1 ? "" : "s"} futura
+            {proyeccion.reservas_futuras === 1 ? "" : "s"} confirmada
+            {proyeccion.reservas_futuras === 1 ? "" : "s"}
+          </div>
+        </div>
+      )}
 
       {/* GLOBAL: barras por año (ingresos/egresos/ganancia) + tarifa por año */}
       {serieAnual && (
@@ -188,7 +215,7 @@ export default function DashboardCharts({
         {/* Por cabaña: ganancia estimada vs ingresos */}
         <Section
           title="Por cabaña — ingresos vs ganancia estimada"
-          hint="Ganancia estimada = ingresos − gastos compartidos prorrateados por noches. Es una estimación."
+          hint="Ganancia estimada = ingresos − gastos compartidos prorrateados por noches (estimación). Noches = vendidas / disponibles en el año: año completo menos septiembre (uso familiar); Maiten solo verano (60); Ruca Chico no tiene cupo propio (misma casa que Ruca, sus noches cuentan en Ruca)."
         >
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={cabanas} margin={{ left: 10, right: 10 }}>
@@ -215,7 +242,12 @@ export default function DashboardCharts({
               {cabanas.map((c) => (
                 <tr key={c.cabin} className="border-b border-neutral-100">
                   <td className="py-1 font-medium">{c.cabin}</td>
-                  <td className="py-1 text-right tabular-nums">{c.noches}</td>
+                  <td className="py-1 text-right tabular-nums">
+                    {c.noches}
+                    {c.disponibles !== null && (
+                      <span className="text-neutral-400"> / {c.disponibles}</span>
+                    )}
+                  </td>
                   <td className="py-1 text-right tabular-nums">
                     {c.ocupacion_pct === null ? "—" : `${c.ocupacion_pct}%`}
                   </td>

@@ -20,9 +20,26 @@ export interface KPIs {
   egresos: number;
   balance: number;
   noches: number;
+  noches_disponibles: number; // cupo rentable del año (ventana real); 0 en global
   ocupacion_pct: number | null; // null en global
   tarifa_prom: number;
   reservas: number;
+}
+
+// Noches rentables del año por unidad física ("ventana real").
+// Septiembre = uso familiar (no se alquila) → se resta al año completo.
+// Maiten = solo verano. Ruca Chico = misma casa que Ruca (sin cupo propio).
+function capacidadCabana(cabin: string, dias: number): number | null {
+  if (dias === 0) return null; // global
+  if (cabin === "Maiten") return 60;
+  if (cabin === "Ruca Chico") return null; // comparte casa con Ruca
+  return dias - 30; // año completo menos septiembre (30 días)
+}
+
+// Cupo total del año: 4 casas de año completo + Maiten (Ruca Chico no suma).
+function capacidadTotal(dias: number): number {
+  if (dias === 0) return 0;
+  return 4 * (dias - 30) + 60;
 }
 
 export async function getKPIs(year: number | null): Promise<KPIs> {
@@ -46,13 +63,14 @@ export async function getKPIs(year: number | null): Promise<KPIs> {
   const ingresos = Number(ing?.usd ?? 0);
   const egresos = Number(egr?.usd ?? 0);
   const noches = Number(occ?.noches ?? 0);
-  // 5 casas físicas (Ruca y Ruca Chico son la MISMA casa, no se solapan)
-  const capacidad = year === null ? 0 : dias * 5;
+  // Cupo "ventana real": año completo menos septiembre × 4 casas + Maiten verano.
+  const capacidad = capacidadTotal(dias);
   return {
     ingresos,
     egresos,
     balance: Math.round((ingresos - egresos) * 100) / 100,
     noches,
+    noches_disponibles: capacidad,
     ocupacion_pct: capacidad ? Math.round((noches / capacidad) * 1000) / 10 : null,
     tarifa_prom: Number(occ?.tarifa ?? 0),
     reservas: Number(res?.n ?? 0),
@@ -62,6 +80,7 @@ export async function getKPIs(year: number | null): Promise<KPIs> {
 export interface CabinRow {
   cabin: string;
   noches: number;
+  disponibles: number | null; // cupo del año (ventana real); null = comparte casa
   ocupacion_pct: number | null;
   tarifa_prom: number;
   ingresos: number;
@@ -85,14 +104,21 @@ export async function getPorCabana(year: number | null): Promise<CabinRow[]> {
       AND date >= ${desde} AND date < ${hasta}`;
   const totalEgresos = Number(egr?.usd ?? 0);
   const totalNoches = rows.reduce((a, r) => a + Number(r.noches), 0) || 1;
+  const nochesPorCabana = new Map(rows.map((r) => [r.cabin, Number(r.noches)]));
   return rows.map((r) => {
     const noches = Number(r.noches);
     const ingresos = Number(r.revenue ?? 0);
     const prorr = (totalEgresos * noches) / totalNoches;
+    const disponibles = capacidadCabana(r.cabin, dias);
+    // Ruca y Ruca Chico = misma casa: la ocupación de Ruca incluye las noches
+    // de Ruca Chico (que no tiene cupo propio), para no subestimar la casa.
+    const nochesOcup =
+      r.cabin === "Ruca" ? noches + (nochesPorCabana.get("Ruca Chico") ?? 0) : noches;
     return {
       cabin: r.cabin,
       noches,
-      ocupacion_pct: year === null ? null : Math.round((noches / dias) * 1000) / 10,
+      disponibles,
+      ocupacion_pct: disponibles ? Math.round((nochesOcup / disponibles) * 1000) / 10 : null,
       tarifa_prom: Number(r.tarifa ?? 0),
       ingresos,
       ganancia_est: Math.round((ingresos - prorr) * 100) / 100,
@@ -290,4 +316,34 @@ export async function getOcupacionTemporadas(year: number): Promise<Temporada[]>
       revenue: r ? Number(r.revenue ?? 0) : 0,
     };
   });
+}
+
+export interface Proyeccion {
+  cobrado: number; // ingresos ya cobrados del año (transactions)
+  por_cobrar: number; // restante de reservas futuras confirmadas (no canceladas)
+  proyeccion: number; // cobrado + por_cobrar
+  reservas_futuras: number;
+}
+
+/** Proyección de fin de año: lo ya cobrado + lo que falta cobrar de las
+ *  reservas futuras (checkin de hoy en adelante, dentro del año, no canceladas).
+ *  El "por cobrar" usa el restante (balance_usd) para no duplicar señas ya cobradas. */
+export async function getProyeccionAnual(year: number): Promise<Proyeccion> {
+  const { hasta } = bounds(year);
+  const [ing] = await sql<{ usd: string | null }[]>`
+    SELECT ROUND(SUM(ingresos_usd),2) AS usd FROM v_monthly_summary
+    WHERE mes >= ${`${year}-01`} AND mes <= ${`${year}-12`}`;
+  const [fut] = await sql<{ usd: string | null; n: string }[]>`
+    SELECT ROUND(SUM(COALESCE(balance_usd, total_usd)),2) AS usd, COUNT(*) AS n
+    FROM reservations
+    WHERE cabin <> 'TODAS' AND cancelled_at IS NULL
+      AND checkin >= CURRENT_DATE AND checkin < ${hasta}`;
+  const cobrado = Number(ing?.usd ?? 0);
+  const por_cobrar = Number(fut?.usd ?? 0);
+  return {
+    cobrado,
+    por_cobrar,
+    proyeccion: Math.round((cobrado + por_cobrar) * 100) / 100,
+    reservas_futuras: Number(fut?.n ?? 0),
+  };
 }

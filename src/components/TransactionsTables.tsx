@@ -1,5 +1,7 @@
+import EditableTxCell from "@/components/EditableTxCell";
 import PendingCobroRow from "@/components/PendingCobroRow";
 import type { PendingCobro, Tx } from "@/db/transactions";
+import { PAYMENT_METHODS } from "@/lib/catalog";
 import { fmtARS, fmtDate, fmtUSD } from "@/lib/format";
 
 const th =
@@ -66,9 +68,11 @@ function IncomeGroupRows({ txs }: { txs: Tx[] }) {
 export default function TransactionsTables({
   txs,
   pendientes = [],
+  categories = [],
 }: {
   txs: Tx[];
   pendientes?: PendingCobro[];
+  categories?: string[];
 }) {
   const ingresos = txs.filter((t) => t.kind === "ingreso");
   const egresos = txs.filter((t) => t.kind === "egreso");
@@ -141,20 +145,30 @@ export default function TransactionsTables({
             <tbody>
               {egresos.map((t) => (
                 <tr key={t.id} className="odd:bg-neutral-50 hover:bg-amber-50">
-                  <td className={`${td} whitespace-nowrap`}>{fmtDate(t.date)}</td>
-                  <td className={`${td} max-w-64 truncate`} title={t.notes ?? t.description ?? undefined}>
+                  <EditableTxCell id={t.id} field="date" type="date" raw={t.date} className={`${td} whitespace-nowrap`}>
+                    {fmtDate(t.date)}
+                  </EditableTxCell>
+                  <EditableTxCell id={t.id} field="description" raw={t.description ?? ""} className={`${td} max-w-64 truncate`}>
                     {t.description}
                     {t.notes && <span title={t.notes}> 📝</span>}
+                  </EditableTxCell>
+                  <EditableTxCell id={t.id} field="amount_ars" type="number" raw={t.amount_ars ?? ""} className={`${td} text-right tabular-nums`}>
+                    {fmtARS(t.amount_ars)}
+                  </EditableTxCell>
+                  <EditableTxCell id={t.id} field="payment_method" type="select" options={PAYMENT_METHODS} raw={t.payment_method ?? ""} className={`${td} whitespace-nowrap`}>
+                    {t.payment_method}
+                  </EditableTxCell>
+                  <EditableTxCell id={t.id} field="blue_rate" type="number" raw={t.blue_rate ?? ""} className={`${td} text-right tabular-nums`}>
+                    {t.blue_rate ? Number(t.blue_rate) : ""}
+                  </EditableTxCell>
+                  <td className={`${td} text-right tabular-nums`} title="Precio blue = Precio ÷ Valor blue (se recalcula solo)">
+                    {fmtUSD(t.amount_usd)}
                   </td>
-                  <td className={`${td} text-right tabular-nums`}>{fmtARS(t.amount_ars)}</td>
-                  <td className={`${td} whitespace-nowrap`}>{t.payment_method}</td>
-                  <td className={`${td} text-right tabular-nums`}>{t.blue_rate ? Number(t.blue_rate) : ""}</td>
-                  <td className={`${td} text-right tabular-nums`}>{fmtUSD(t.amount_usd)}</td>
-                  <td className={`${td} whitespace-nowrap`}>
+                  <EditableTxCell id={t.id} field="category" type="select" options={categories} raw={t.category ?? ""} className={`${td} whitespace-nowrap`}>
                     {t.category && (
                       <span className="rounded bg-neutral-100 px-1.5 py-0.5">{t.category}</span>
                     )}
-                  </td>
+                  </EditableTxCell>
                 </tr>
               ))}
             </tbody>

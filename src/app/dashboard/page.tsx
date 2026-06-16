@@ -8,6 +8,7 @@ import {
   getOcupacionTemporadas,
   getPorCabana,
   getPorPlataforma,
+  getProyeccionAnual,
   getSerieAnual,
   getTarifaPorMes,
   getYears,
@@ -39,6 +40,10 @@ export default async function DashboardPage({
     year !== null
       ? await Promise.all([getTarifaPorMes(year), getOcupacionTemporadas(year)])
       : [null, null];
+  // Proyección fin de año: solo tiene sentido para el año en curso (o futuro).
+  const currentYear = new Date().getFullYear();
+  const proyeccion =
+    year !== null && year >= currentYear ? await getProyeccionAnual(year) : null;
 
   return (
     <div className="space-y-3">
@@ -54,6 +59,7 @@ export default async function DashboardPage({
         serieAnual={serieAnual}
         tarifaMes={tarifaMes}
         temporadas={temporadas}
+        proyeccion={proyeccion}
       />
     </div>
   );
