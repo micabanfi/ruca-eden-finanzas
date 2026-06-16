@@ -5,6 +5,7 @@ import CalendarSources from "@/components/CalendarSources";
 import CalendarTimeline from "@/components/CalendarTimeline";
 import { getCalendarSources } from "@/db/calendar";
 import { getReservations } from "@/db/reservations";
+import { readWithRetry } from "@/lib/db";
 import { applyAirbnbNames, buildCalendar, eventsForMonth, loadFeeds } from "@/lib/ical";
 
 export const dynamic = "force-dynamic";
@@ -21,12 +22,12 @@ export default async function CalendarioPage({
   const mes = /^\d{4}-\d{2}$/.test(params.mes ?? "") ? (params.mes as string) : todayMes;
   const force = Boolean(params.fresh); // botón "↻ Refrescar": ignora el cache de 1h
 
-  const sources = await getCalendarSources();
+  const sources = await readWithRetry(() => getCalendarSources());
   const active = sources.filter((s) => s.active);
   // El calendario se llena con lo que viene de los feeds (Google + Airbnb).
   const [{ events: rawEvents, feedErrors }, reservations] = await Promise.all([
     loadFeeds(active, force),
-    getReservations(),
+    readWithRetry(() => getReservations()),
   ]);
 
   // Reservas de la app (Alquileres Detalle), no canceladas.

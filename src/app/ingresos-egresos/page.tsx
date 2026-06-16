@@ -11,6 +11,7 @@ import {
   getTransactionsByYear,
   getYears,
 } from "@/db/transactions";
+import { readWithRetry } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30; // serverless: cortar a los 30s, no a los 300
@@ -22,16 +23,16 @@ export default async function IngresosEgresosPage({
 }) {
   const params = await searchParams;
   const [years, categories, balances, entregas] = await Promise.all([
-    getYears(),
-    getCategories(),
-    getHolderBalances(),
-    getEntregas(),
+    readWithRetry(() => getYears()),
+    readWithRetry(() => getCategories()),
+    readWithRetry(() => getHolderBalances()),
+    readWithRetry(() => getEntregas()),
   ]);
   const current = new Date().getFullYear();
   const year = Number(params.year) || (years.includes(current) ? current : years.at(-1)!);
   const [txs, pendientes] = await Promise.all([
-    getTransactionsByYear(year),
-    getPendingCobros(year),
+    readWithRetry(() => getTransactionsByYear(year)),
+    readWithRetry(() => getPendingCobros(year)),
   ]);
 
   return (

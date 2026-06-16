@@ -1,15 +1,16 @@
 import ReservationsTable from "@/components/ReservationsTable";
 import ReservationForm from "@/components/forms/ReservationForm";
 import { getBookingAlerts, getInvitadaIds, getReservations } from "@/db/reservations";
+import { readWithRetry } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30; // serverless: cortar a los 30s, no a los 300
 
 export default async function AlquileresPage() {
   const [reservations, alerts, invitadaIds] = await Promise.all([
-    getReservations(),
-    getBookingAlerts(),
-    getInvitadaIds(),
+    readWithRetry(() => getReservations()),
+    readWithRetry(() => getBookingAlerts()),
+    readWithRetry(() => getInvitadaIds()),
   ]);
   const invitadas = new Set(invitadaIds);
   const activas = reservations.filter((r) => !r.cancelled_at);

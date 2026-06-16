@@ -1,5 +1,6 @@
 import DashboardCharts from "@/components/DashboardCharts";
 import DashboardYearTabs from "@/components/DashboardYearTabs";
+import { readWithRetry } from "@/lib/db";
 import {
   getGastosPorGrupo,
   getGastosVariosDetalle,
@@ -23,27 +24,32 @@ export default async function DashboardPage({
   searchParams: Promise<{ year?: string }>;
 }) {
   const params = await searchParams;
-  const years = await getYears();
+  const years = await readWithRetry(() => getYears());
   const esGlobal = params.year === "global";
   const year = esGlobal ? null : Number(params.year) || new Date().getFullYear();
 
   const [kpis, cabanas, metodos, gastosGrupo, gastosVarios, plataformas] = await Promise.all([
-    getKPIs(year),
-    getPorCabana(year),
-    getMetodosPago(year),
-    getGastosPorGrupo(year),
-    getGastosVariosDetalle(year),
-    getPorPlataforma(year),
+    readWithRetry(() => getKPIs(year)),
+    readWithRetry(() => getPorCabana(year)),
+    readWithRetry(() => getMetodosPago(year)),
+    readWithRetry(() => getGastosPorGrupo(year)),
+    readWithRetry(() => getGastosVariosDetalle(year)),
+    readWithRetry(() => getPorPlataforma(year)),
   ]);
-  const serieAnual = esGlobal ? await getSerieAnual() : null;
+  const serieAnual = esGlobal ? await readWithRetry(() => getSerieAnual()) : null;
   const [tarifaMes, temporadas] =
     year !== null
-      ? await Promise.all([getTarifaPorMes(year), getOcupacionTemporadas(year)])
+      ? await Promise.all([
+          readWithRetry(() => getTarifaPorMes(year)),
+          readWithRetry(() => getOcupacionTemporadas(year)),
+        ])
       : [null, null];
   // Proyección fin de año: solo tiene sentido para el año en curso (o futuro).
   const currentYear = new Date().getFullYear();
   const proyeccion =
-    year !== null && year >= currentYear ? await getProyeccionAnual(year) : null;
+    year !== null && year >= currentYear
+      ? await readWithRetry(() => getProyeccionAnual(year))
+      : null;
 
   return (
     <div className="space-y-3">

@@ -5,6 +5,7 @@ import {
   getShiftMoves,
   getYearlyTotals,
 } from "@/db/resumen";
+import { readWithRetry } from "@/lib/db";
 import { fmtARS, fmtDate, fmtUSD } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -15,11 +16,11 @@ const td = "border-b border-neutral-100 px-3 py-1 text-right tabular-nums";
 
 export default async function ResumenPage() {
   const [years, ajustes, control, problems, shifts] = await Promise.all([
-    getYearlyTotals(),
-    getAjustes(),
-    getControlEgresos(),
-    getProblemTxs(),
-    getShiftMoves(),
+    readWithRetry(() => getYearlyTotals()),
+    readWithRetry(() => getAjustes()),
+    readWithRetry(() => getControlEgresos()),
+    readWithRetry(() => getProblemTxs()),
+    readWithRetry(() => getShiftMoves()),
   ]);
 
   // los años ya excluyen los Ajustes (la matriz no los tiene): esto es el

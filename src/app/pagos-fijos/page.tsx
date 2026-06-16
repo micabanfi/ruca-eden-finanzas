@@ -1,6 +1,7 @@
 import Link from "next/link";
 import PagosFijosMatrix from "@/components/PagosFijosMatrix";
 import { getMonthlySummary, getPagosFijosSheet } from "@/db/pagosFijos";
+import { readWithRetry } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30; // serverless: cortar a los 30s, no a los 300
@@ -12,8 +13,8 @@ export default async function PagosFijosPage({
 }) {
   const params = await searchParams;
   const [cells, monthly] = await Promise.all([
-    getPagosFijosSheet(),
-    getMonthlySummary(),
+    readWithRetry(() => getPagosFijosSheet()),
+    readWithRetry(() => getMonthlySummary()),
   ]);
 
   const years = [

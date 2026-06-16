@@ -29,3 +29,36 @@ export const sql =
   });
 
 if (process.env.NODE_ENV !== "production") globalForDb.sql = sql;
+
+/** Ejecuta una LECTURA con timeout de cliente y un reintento.
+ *
+ *  En Vercel serverless, entre requests la instancia se "congela" y el socket
+ *  de una conexión reusada puede quedar muerto: la query no responde nunca y la
+ *  función recién muere a los 30s (el "Vercel Runtime Timeout"). Acá cortamos a
+ *  los `ms` y reintentamos una vez: el segundo intento toma otra conexión del
+ *  pool (max: 5) y casi siempre anda. Si las dos fallan, la página falla rápido
+ *  (≈20s) en vez de colgarse los 30s enteros.
+ *
+ *  SOLO para SELECTs (son idempotentes): nunca envolver escrituras con esto. */
+export async function readWithRetry<T>(run: () => Promise<T>, ms = 10_000): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        run(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error("DB timeout — la conexión quedó colgada")),
+            ms,
+          );
+        }),
+      ]);
+    } catch (e) {
+      lastErr = e;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+  throw lastErr;
+}
