@@ -64,6 +64,12 @@ export function phys(cabin: string | null): string | null {
   return cabin === "Ruca" || cabin === "Ruca Chico" ? "Ruca" : cabin;
 }
 
+/** Suma n días a 'YYYY-MM-DD' (UTC, sin líos de zona horaria). */
+export function addDays(ymd: string, n: number): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
 /** Solapamiento de rangos con checkout exclusivo (strings 'YYYY-MM-DD' comparan bien). */
 export function overlaps(aS: string, aE: string, bS: string, bE: string): boolean {
   return aS < bE && bS < aE;
@@ -347,17 +353,26 @@ export interface OverbookPair {
   a: { label: string; start: string; end: string; guest: string | null };
   b: { label: string; start: string; end: string; guest: string | null };
 }
+/** Misma reserva en la app y en Google, pero con fechas que no coinciden. */
+export interface DateMismatch {
+  cabin: string | null;
+  guest: string | null;
+  app: { start: string; end: string }; // checkin / checkout de la app
+  google: { start: string; end: string }; // checkin / checkout que se deduce de Google
+}
 export interface DiffResult {
   generatedAt: string;
   feedErrors: { label: string; error: string }[];
   hasGoogle: boolean;
   unparsedGoogle: ExtEvent[]; // eventos de Google sin cabaña reconocible
   airbnbNotInApp: ExtEvent[]; // 🟠 reserva de Airbnb que no está en Alquileres Detalle
+  dateMismatch: DateMismatch[]; // 🟠 misma reserva pero con fechas distintas (app vs Google)
   notInGoogle: CalItem[]; // 🟡 lo nuestro (app no-Airbnb + Airbnb) que no está en Google
   googleNotInRecords: ExtEvent[]; // 🟡 Google que no está ni en la app ni en Airbnb
   overbook: OverbookPair[]; // 🔴 misma casa, fechas pisadas, reservas distintas
   counts: {
     airbnbNotInApp: number;
+    dateMismatch: number;
     notInGoogle: number;
     googleNotInRecords: number;
     overbook: number;
@@ -413,6 +428,26 @@ export function computeDiff(
     airbnb.some((a) => a.phys === g.phys && overlaps(a.start, a.end, g.start, g.end));
   const googleNotInRecords = hasGoogle ? google.filter((g) => !inRecords(g)) : [];
 
+  // 🟠 misma reserva en la app y en Google pero con fechas distintas. Convención
+  // verificada: el DTEND de Google = checkout de la app + 1 día (Mimi dibuja el día
+  // de salida en Google). Se considera "la misma" si comparten check-in o el nombre.
+  // El check-out de Google se muestra ya normalizado (−1) para comparar peras con peras.
+  const dateMismatch: DateMismatch[] = [];
+  if (hasGoogle) {
+    for (const g of google) {
+      const cands = ourCal.filter((it) => it.phys === g.phys && overlaps(it.start, it.end, g.start, g.end));
+      const m = cands.find((it) => it.start === g.start) ?? cands.find((it) => fuzzyName(it.guest, g.guest));
+      if (!m) continue; // no la encontramos: ya lo cubren notInGoogle / googleNotInRecords
+      if (m.start === g.start && g.end === addDays(m.end, 1)) continue; // coincide (con la convención)
+      dateMismatch.push({
+        cabin: m.cabin ?? g.cabin,
+        guest: m.guest ?? g.guest,
+        app: { start: m.start, end: m.end },
+        google: { start: g.start, end: addDays(g.end, -1) },
+      });
+    }
+  }
+
   // 🔴 overbook: misma casa física, fechas pisadas, reservas distintas, entre los
   // items de nuestro calendario (app no-Airbnb + Airbnb). Descarta turnover y la
   // misma reserva vista dos veces.
@@ -441,11 +476,13 @@ export function computeDiff(
     hasGoogle,
     unparsedGoogle,
     airbnbNotInApp,
+    dateMismatch,
     notInGoogle,
     googleNotInRecords,
     overbook,
     counts: {
       airbnbNotInApp: airbnbNotInApp.length,
+      dateMismatch: dateMismatch.length,
       notInGoogle: notInGoogle.length,
       googleNotInRecords: googleNotInRecords.length,
       overbook: overbook.length,

@@ -60,7 +60,8 @@ export default function CalendarDiff() {
 
   const c = res?.counts;
   const allClear =
-    res && c && c.airbnbNotInApp + c.notInGoogle + c.googleNotInRecords + c.overbook === 0 &&
+    res && c &&
+    c.airbnbNotInApp + c.dateMismatch + c.notInGoogle + c.googleNotInRecords + c.overbook === 0 &&
     res.unparsedGoogle.length === 0;
 
   return (
@@ -118,6 +119,29 @@ export default function CalendarDiff() {
                         <span className="font-semibold">{o.phys}</span>:{" "}
                         {o.a.label} (<Range start={o.a.start} end={o.a.end} />{o.a.guest ? ` · ${o.a.guest}` : ""}) ⚔{" "}
                         {o.b.label} (<Range start={o.b.start} end={o.b.end} />{o.b.guest ? ` · ${o.b.guest}` : ""})
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {c && c.dateMismatch > 0 && (
+                <div className={`${box} border-orange-400 bg-orange-50`}>
+                  <div className={`${h} text-orange-900`}>
+                    🟠 Misma reserva, fechas que NO coinciden (app vs Google) ({c.dateMismatch})
+                  </div>
+                  <ul className="space-y-1">
+                    {res.dateMismatch.map((d, i) => (
+                      <li key={i} className="text-orange-900">
+                        <span className="font-medium">{d.cabin ?? "?"}</span>
+                        {d.guest && <> · {d.guest}</>} ·{" "}
+                        <span className="whitespace-nowrap">
+                          App: <Range start={d.app.start} end={d.app.end} />
+                        </span>{" "}
+                        ≠{" "}
+                        <span className="whitespace-nowrap">
+                          Google: <Range start={d.google.start} end={d.google.end} />
+                        </span>
                       </li>
                     ))}
                   </ul>
