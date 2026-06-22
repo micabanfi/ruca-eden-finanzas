@@ -46,9 +46,17 @@ const ddmm = (d: string): string => {
   const [, m, day] = d.split("-");
   return d ? `${day}/${m}` : "";
 };
-const ddmmyyyy = (d: string): string => {
+/** Subcampos día/mes/año que esperan los date pickers de JotForm (no un string).
+ *  El campo `fechaX` es de tipo fecha → se prellena con `fechaX[day]/[month]/[year]`,
+ *  no con `fechaX=DD/MM/YYYY` (que JotForm ignora dejando el campo vacío). */
+const dateParts = (field: string, d: string): Record<string, string> => {
+  if (!d) return {};
   const [y, m, day] = d.split("-");
-  return d ? `${day}/${m}/${y}` : "";
+  return {
+    [`${field}[day]`]: String(Number(day)),
+    [`${field}[month]`]: String(Number(m)),
+    [`${field}[year]`]: y,
+  };
 };
 
 /** Mensaje de reserva para WhatsApp (maneja 1 o varias cabañas). */
@@ -83,8 +91,8 @@ export function buildJotformUrl(d: ReservaData): string {
     senia: String(Math.round(d.senia)),
     resto: String(Math.round(d.total - d.senia)),
     noches: String(nights),
-    fechaDesde: ddmmyyyy(d.checkin),
-    fechaHasta: ddmmyyyy(d.checkout),
+    ...dateParts("fechaDesde", d.checkin),
+    ...dateParts("fechaHasta", d.checkout),
   });
   return `https://form.jotform.com/${JOTFORM_FORM_ID}?${params.toString()}`;
 }
