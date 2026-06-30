@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addIngreso } from "@/actions/transactions";
+import CurrencyAmount from "@/components/forms/CurrencyAmount";
 import PaymentMethodField from "@/components/forms/PaymentMethodField";
 import { HOLDERS } from "@/lib/catalog";
 
@@ -49,10 +50,7 @@ export default function IncomeForm() {
         Nombre
         <input type="text" name="description" className={`${input} w-44`} placeholder="inquilino" />
       </label>
-      <label className="flex flex-col text-xs">
-        Precio (USD)
-        <input type="number" name="amount_usd" step="0.01" min="0" required className={`${input} w-28 text-right`} />
-      </label>
+      <CurrencyAmount inputClass={input} label="Precio" required />
       <PaymentMethodField inputClass={input} />
       <label className="flex flex-col text-xs">
         Lo tiene

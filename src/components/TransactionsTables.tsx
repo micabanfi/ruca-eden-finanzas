@@ -1,4 +1,5 @@
 import EditableTxCell from "@/components/EditableTxCell";
+import EntregaPopup from "@/components/EntregaPopup";
 import PendingCobroRow from "@/components/PendingCobroRow";
 import type { PendingCobro, Tx } from "@/db/transactions";
 import { PAYMENT_METHODS } from "@/lib/catalog";
@@ -20,6 +21,27 @@ function holderOf(t: Tx): string | null {
   if (pm.startsWith("gus")) return "Gustavo";
   if (pm.includes("paypal") || pm.includes("airbnb")) return "Paypal";
   return null;
+}
+
+/** Celda "Metodo Pago" de un ingreso. Si lo tiene una persona (no Mica), muestra
+ *  un "+" para registrar que se entregó a Mica; una vez registrada, la celda pasa
+ *  a "<método> → Mica" y el "+" reabre el popup para ver/editar/deshacer. */
+function MetodoPagoCell({ t }: { t: Tx }) {
+  const holder = holderOf(t);
+  const person = holder && holder !== "Mica" ? holder : null;
+  const label = t.payment_method ?? holder ?? "";
+  return (
+    <td className={`${td} whitespace-nowrap`}>
+      {t.entrega_id ? (
+        <span title="Se entregó a Mica" className="text-amber-900">
+          {label} → Mica
+        </span>
+      ) : (
+        <span>{label}</span>
+      )}
+      {person && <EntregaPopup tx={t} holder={person} />}
+    </td>
+  );
 }
 
 type Item =
@@ -60,7 +82,7 @@ function IncomeGroupRows({ txs }: { txs: Tx[] }) {
       )}
       <td className={`${td} text-right tabular-nums`}>{fmtUSD(t.amount_usd)}</td>
       <td className={`${td} whitespace-nowrap`}>{holderOf(t)}</td>
-      <td className={`${td} whitespace-nowrap`}>{t.payment_method}</td>
+      <MetodoPagoCell t={t} />
     </tr>
   ));
 }

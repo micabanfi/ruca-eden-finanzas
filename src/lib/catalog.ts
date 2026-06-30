@@ -20,6 +20,14 @@ export const PAYMENT_METHODS = [
 // bi-moneda en Ingresos/Egresos; el resto es solo informativo.
 export const DEPOSIT_ACCOUNTS = ["Cash", "Santander"];
 
+// Monedas en que se puede cobrar/entregar. value = lo que se guarda en la base;
+// label = lo que ve Mimi. La mayoría de los inquilinos paga en pesos.
+export const CURRENCIES = [
+  { value: "USD", label: "USD" },
+  { value: "ARS", label: "Pesos" },
+] as const;
+export type Currency = (typeof CURRENCIES)[number]["value"];
+
 // Color de chip por plataforma (compartido por ReservationsTable y el calendario)
 export const PLATFORM_COLORS: Record<string, string> = {
   AirBnb: "bg-rose-100 text-rose-800",

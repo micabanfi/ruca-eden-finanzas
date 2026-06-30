@@ -3,9 +3,10 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addEntrega } from "@/actions/cobros";
+import CurrencyAmount from "@/components/forms/CurrencyAmount";
 import type { Entrega, HolderBalance } from "@/db/transactions";
 import { HOLDERS } from "@/lib/catalog";
-import { fmtDate, fmtUSD } from "@/lib/format";
+import { fmtARS, fmtDate, fmtUSD } from "@/lib/format";
 
 const input =
   "rounded border border-neutral-300 bg-white px-1.5 py-0.5 text-xs focus:border-green-700 focus:outline-none";
@@ -45,11 +46,17 @@ export default function HoldersBox({
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-semibold text-amber-900">💰 Plata en manos de:</span>
         {balances.length === 0 && <span className="text-neutral-500">nadie — todo entregado</span>}
-        {balances.map((b) => (
-          <span key={b.holder} className="rounded bg-amber-200/70 px-2 py-0.5 font-semibold text-amber-950 tabular-nums">
-            {b.holder} · {fmtUSD(b.balance_usd)}
-          </span>
-        ))}
+        {balances.map((b) => {
+          const u = Number(b.balance_usd);
+          const a = Number(b.balance_ars);
+          return (
+            <span key={b.holder} className="rounded bg-amber-200/70 px-2 py-0.5 font-semibold text-amber-950 tabular-nums">
+              {b.holder}
+              {Math.abs(u) > 0.01 && <> · {fmtUSD(b.balance_usd)}</>}
+              {Math.abs(a) > 0.01 && <> · {fmtARS(b.balance_ars, 0)}</>}
+            </span>
+          );
+        })}
         <button
           onClick={() => setOpen(!open)}
           className="rounded bg-amber-700 px-2 py-0.5 font-medium text-white hover:bg-amber-800"
@@ -72,11 +79,7 @@ export default function HoldersBox({
               ))}
             </select>
           </label>
-          <label className="flex flex-col">
-            Monto (USD)
-            <input type="number" name="amount_usd" step="0.01" min="0" required
-              className={`${input} w-28 text-right`} />
-          </label>
+          <CurrencyAmount inputClass={input} label="Monto" required />
           <label className="flex grow flex-col">
             Nota
             <input type="text" name="notes" className={`${input} min-w-40`} />
@@ -94,7 +97,8 @@ export default function HoldersBox({
           <ul className="mt-1 space-y-0.5">
             {entregas.map((e) => (
               <li key={e.id} className="tabular-nums">
-                {fmtDate(e.date)} · {e.holder} entregó {fmtUSD(e.amount_usd)}
+                {fmtDate(e.date)} · {e.holder} entregó{" "}
+                {e.currency === "ARS" ? fmtARS(e.amount_ars, 0) : fmtUSD(e.amount_usd)}
                 {e.notes && <span className="italic"> — {e.notes}</span>}
               </li>
             ))}

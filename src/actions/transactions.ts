@@ -108,21 +108,37 @@ export async function updateTransaction(
 export async function addIngreso(formData: FormData): Promise<ActionResult> {
   const date = String(formData.get("date") ?? "");
   const description = String(formData.get("description") ?? "").trim();
-  const amountUsd = Number(formData.get("amount_usd"));
   const paymentMethod = String(formData.get("payment_method") ?? "").trim();
   const holder = String(formData.get("holder") ?? "").trim();
   const notes = String(formData.get("notes") ?? "").trim();
+  // Moneda nativa: USD (precio en USD) o ARS (pesos reales + blue → USD-equiv).
+  const currency = String(formData.get("currency") ?? "USD").trim() === "ARS" ? "ARS" : "USD";
 
   if (!date) return { ok: false, error: "Falta la fecha" };
-  if (!Number.isFinite(amountUsd) || amountUsd <= 0)
-    return { ok: false, error: "Precio USD inválido" };
+
+  let amountUsd: number;
+  let amountArs: number | null = null;
+  let blueRate: number | null = null;
+  if (currency === "ARS") {
+    amountArs = Number(formData.get("amount_ars"));
+    blueRate = Number(formData.get("blue_rate"));
+    if (!Number.isFinite(amountArs) || amountArs <= 0)
+      return { ok: false, error: "Precio en pesos inválido" };
+    if (!Number.isFinite(blueRate) || blueRate <= 0)
+      return { ok: false, error: "Valor blue inválido" };
+    amountUsd = amountArs / blueRate;
+  } else {
+    amountUsd = Number(formData.get("amount_usd"));
+    if (!Number.isFinite(amountUsd) || amountUsd <= 0)
+      return { ok: false, error: "Precio USD inválido" };
+  }
 
   await sql`
     INSERT INTO transactions
-      (kind, date, description, amount_usd, payment_method_raw, payment_method,
-       holder, notes, source_sheet)
-    VALUES ('ingreso', ${date}, ${description || null}, ${amountUsd},
-            ${paymentMethod || null}, ${paymentMethod || null},
+      (kind, date, description, amount_usd, amount_ars, blue_rate, currency,
+       payment_method_raw, payment_method, holder, notes, source_sheet)
+    VALUES ('ingreso', ${date}, ${description || null}, ${amountUsd}, ${amountArs},
+            ${blueRate}, ${currency}, ${paymentMethod || null}, ${paymentMethod || null},
             ${holder || null}, ${notes || null}, 'app')`;
   revalidate();
   return { ok: true };

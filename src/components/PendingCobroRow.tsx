@@ -2,11 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { fetchBlueRate } from "@/actions/blue";
 import { cobrarReserva, marcarCobrada, marcarInvitada, vincularCobro } from "@/actions/cobros";
 import BlockingSpinner from "@/components/BlockingSpinner";
 import PaymentMethodField from "@/components/forms/PaymentMethodField";
 import type { PendingCobro } from "@/db/transactions";
-import { HOLDERS } from "@/lib/catalog";
+import { CURRENCIES, HOLDERS } from "@/lib/catalog";
 import { fmtDate, fmtUSD } from "@/lib/format";
 
 function HolderSelect({
@@ -39,6 +40,25 @@ export default function PendingCobroRow({ p }: { p: PendingCobro }) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [currency, setCurrency] = useState("USD");
+  const [blue, setBlue] = useState<number | null>(null);
+  const [fetchingRate, setFetchingRate] = useState(false);
+  const cur = currency === "ARS" ? "pesos" : "USD";
+
+  async function onCurrencyChange(v: string) {
+    setCurrency(v);
+    if (v === "ARS" && !blue) {
+      setFetchingRate(true);
+      try {
+        const r = await fetchBlueRate();
+        setBlue(r.rate);
+      } catch {
+        // si falla, lo carga a mano
+      } finally {
+        setFetchingRate(false);
+      }
+    }
+  }
 
   const dep = p.deposit_usd ? Number(p.deposit_usd) : null;
   const total = p.total_usd ? Number(p.total_usd) : null;
@@ -124,25 +144,42 @@ export default function PendingCobroRow({ p }: { p: PendingCobro }) {
               className="flex flex-wrap items-end gap-2"
             >
               <input type="hidden" name="reservation_id" value={p.id} />
+              <input type="hidden" name="currency" value={currency} />
               <label className="flex flex-col">
                 Fecha
                 <input type="date" name="date" required defaultValue={p.checkin} className={input} />
               </label>
+              <label className="flex flex-col">
+                Moneda
+                <select value={currency} onChange={(e) => onCurrencyChange(e.target.value)} className={input}>
+                  {CURRENCIES.map((c) => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+              </label>
+              {currency === "ARS" && (
+                <label className="flex flex-col">
+                  Valor blue {fetchingRate && "⏳"}
+                  <input type="number" name="blue_rate" step="0.01" min="0" required
+                    value={blue ?? ""} onChange={(e) => setBlue(Number(e.target.value) || null)}
+                    className={`${input} w-24 text-right`} />
+                </label>
+              )}
               {dep ? (
                 <>
                   <label className="flex flex-col">
-                    Seña (USD)
-                    <input type="number" name="amount_1" step="0.01" min="0"
-                      defaultValue={dep} className={`${input} w-24 text-right`} />
+                    Seña ({cur})
+                    <input key={`a1-${currency}`} type="number" name="amount_1" step="0.01" min="0"
+                      defaultValue={currency === "ARS" ? "" : dep} className={`${input} w-24 text-right`} />
                   </label>
                   <label className="flex flex-col">
                     La tiene
                     <HolderSelect name="holder_1" defaultValue={holderDefaultSenia} inputClass={input} />
                   </label>
                   <label className="flex flex-col">
-                    Resto (USD)
-                    <input type="number" name="amount_2" step="0.01" min="0"
-                      defaultValue={resto ?? ""} className={`${input} w-24 text-right`} />
+                    Resto ({cur})
+                    <input key={`a2-${currency}`} type="number" name="amount_2" step="0.01" min="0"
+                      defaultValue={currency === "ARS" ? "" : resto ?? ""} className={`${input} w-24 text-right`} />
                   </label>
                   <label className="flex flex-col">
                     Lo tiene
@@ -152,9 +189,9 @@ export default function PendingCobroRow({ p }: { p: PendingCobro }) {
               ) : (
                 <>
                   <label className="flex flex-col">
-                    Monto (USD)
-                    <input type="number" name="amount_1" step="0.01" min="0"
-                      defaultValue={total ?? ""} className={`${input} w-24 text-right`} />
+                    Monto ({cur})
+                    <input key={`a1-${currency}`} type="number" name="amount_1" step="0.01" min="0"
+                      defaultValue={currency === "ARS" ? "" : total ?? ""} className={`${input} w-24 text-right`} />
                   </label>
                   <label className="flex flex-col">
                     Lo tiene
