@@ -13,7 +13,9 @@ export async function addReservation(formData: FormData): Promise<ActionResult> 
   const platform = String(formData.get("platform") ?? "").trim();
   const pricePerNightIn = Number(formData.get("price_per_night"));
   const totalIn = Number(formData.get("total_usd"));
-  const deposit = Number(formData.get("deposit_usd"));
+  const deposit = Number(formData.get("deposit_amount"));
+  const depositCurrency = String(formData.get("deposit_currency") ?? "USD").trim() || "USD";
+  const depositAccount = String(formData.get("deposit_account") ?? "").trim();
   const paymentMethod = String(formData.get("payment_method") ?? "").trim();
 
   if (!checkin || !checkout) return { ok: false, error: "Faltan fechas" };
@@ -32,17 +34,22 @@ export async function addReservation(formData: FormData): Promise<ActionResult> 
   if (!pricePerNight || !total)
     return { ok: false, error: "Cargá el precio por noche o el total" };
 
-  const dep = Number.isFinite(deposit) && deposit > 0 ? deposit : null;
+  const depAmount = Number.isFinite(deposit) && deposit > 0 ? deposit : null;
+  // Seña en pesos: va a deposit_ars y NO toca el saldo USD (cuentas separadas).
+  // Seña en USD: deposit_usd como siempre y descuenta del restante.
+  const depUsd = depAmount !== null && depositCurrency !== "ARS" ? depAmount : null;
+  const depArs = depAmount !== null && depositCurrency === "ARS" ? depAmount : null;
 
   await sql.begin(async (tx) => {
     const [row] = await tx<{ id: string }[]>`
       INSERT INTO reservations
         (checkin, checkout, guest_name, phone, cabin, platform, nights,
-         price_per_night, total_usd, deposit_usd, balance_usd, payment_method,
-         collected, notes)
+         price_per_night, total_usd, deposit_usd, deposit_ars, deposit_account,
+         deposit_currency, balance_usd, payment_method, collected, notes)
       VALUES (${checkin}, ${checkout}, ${guestName || null}, ${phone || null},
               ${cabin}, ${platform || null}, ${nights}, ${pricePerNight},
-              ${total}, ${dep}, ${dep ? total - dep : null},
+              ${total}, ${depUsd}, ${depArs}, ${depositAccount || null},
+              ${depositCurrency}, ${depUsd ? total - depUsd : null},
               ${paymentMethod || null}, 0, 'creada en app')
       RETURNING id`;
     if (cabin !== "TODAS") {
@@ -54,6 +61,7 @@ export async function addReservation(formData: FormData): Promise<ActionResult> 
   });
 
   revalidatePath("/alquileres");
+  revalidatePath("/ingresos-egresos"); // la seña en Santander cambia el saldo de la cuenta
   return { ok: true };
 }
 
@@ -138,7 +146,13 @@ export async function restoreReservation(id: string): Promise<ActionResult> {
 
 // --- inline cell editing -----------------------------------------------------
 
-const TEXT_FIELDS = new Set(["guest_name", "phone", "platform", "payment_method"]);
+const TEXT_FIELDS = new Set([
+  "guest_name", "phone", "platform", "payment_method",
+  "deposit_account", "deposit_currency",
+]);
+// numéricos que se guardan tal cual, sin recalcular total/restante (la seña en
+// pesos no toca el saldo USD de la reserva — son cuentas separadas).
+const SIMPLE_NUM_FIELDS = new Set(["deposit_ars"]);
 const RECOMPUTE_FIELDS = new Set([
   "checkin", "checkout", "nights", "cabin",
   "price_per_night", "total_usd", "deposit_usd", "balance_usd",
@@ -163,6 +177,16 @@ export async function updateReservation(
   if (TEXT_FIELDS.has(field)) {
     await sql`UPDATE reservations SET ${sql(field)} = ${v || null} WHERE id = ${id}`;
     revalidatePath("/alquileres");
+    revalidatePath("/ingresos-egresos");
+    return { ok: true };
+  }
+  // seña en pesos: se guarda sin recalcular el saldo USD
+  if (SIMPLE_NUM_FIELDS.has(field)) {
+    const n = v === "" ? null : Number(v);
+    if (n !== null && (!Number.isFinite(n) || n < 0)) return { ok: false, error: "Monto inválido" };
+    await sql`UPDATE reservations SET ${sql(field)} = ${n} WHERE id = ${id}`;
+    revalidatePath("/alquileres");
+    revalidatePath("/ingresos-egresos");
     return { ok: true };
   }
   if (!RECOMPUTE_FIELDS.has(field)) return { ok: false, error: `Campo no editable: ${field}` };
@@ -256,5 +280,6 @@ export async function updateReservation(
   });
 
   revalidatePath("/alquileres");
+  revalidatePath("/ingresos-egresos"); // editar la seña USD impacta el saldo Santander
   return { ok: true };
 }

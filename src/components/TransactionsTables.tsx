@@ -129,7 +129,7 @@ export default function TransactionsTables({
       {/* Egresos */}
       <section className="xl:col-span-3">
         <h2 className="mb-1 text-sm font-semibold text-red-800">
-          Egresos · {egresos.length} · {fmtARS(sum(egresos, "amount_ars"))} ·{" "}
+          Egresos · {egresos.length} · {fmtARS(sum(egresos, "amount_ars"), 2)} ·{" "}
           {fmtUSD(sum(egresos, "amount_usd"))}
         </h2>
         <div className="max-h-[75vh] overflow-auto rounded border border-neutral-300 text-xs">
@@ -153,7 +153,7 @@ export default function TransactionsTables({
                     {t.notes && <span title={t.notes}> 📝</span>}
                   </EditableTxCell>
                   <EditableTxCell id={t.id} field="amount_ars" type="number" raw={t.amount_ars ?? ""} className={`${td} text-right tabular-nums`}>
-                    {fmtARS(t.amount_ars)}
+                    {fmtARS(t.amount_ars, 2)}
                   </EditableTxCell>
                   <EditableTxCell id={t.id} field="payment_method" type="select" options={PAYMENT_METHODS} raw={t.payment_method ?? ""} className={`${td} whitespace-nowrap`}>
                     {t.payment_method}

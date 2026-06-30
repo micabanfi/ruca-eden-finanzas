@@ -30,7 +30,8 @@ app + Supabase son la **fuente de verdad**.
    nada del schema `z_fp`.** Ruca Edén vive en el schema **`public`** y posee
    exactamente estas tablas: `attribution_overrides, category_map, entregas,
    res_cobradas, res_invitaciones, reservation_nights, reservations, transactions,
-   tx_links, warnings`; y estas vistas (`v_`): `v_booking_alerts,
+   tx_links, warnings, calendar_sources, contract_links, cuenta_movimientos`;
+   y estas vistas (`v_`): `v_booking_alerts,
    v_future_reservations, v_monthly_summary, v_occupancy, v_pagos_fijos,
    v_pagos_fijos_sheet, v_revenue_by_platform`. Nunca corras sentencias en bloque
    sobre todo el schema; apuntá a objetos por nombre.

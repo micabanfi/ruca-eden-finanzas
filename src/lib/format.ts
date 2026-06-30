@@ -1,14 +1,20 @@
 // Formatters matching the sheet's display conventions (es-AR)
 
-const ars = new Intl.NumberFormat("es-AR", { maximumFractionDigits: 0 });
+const ars0 = new Intl.NumberFormat("es-AR", { maximumFractionDigits: 0 });
+const ars2 = new Intl.NumberFormat("es-AR", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
 const usd = new Intl.NumberFormat("es-AR", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
 
-export function fmtARS(n: number | string | null | undefined): string {
+/** Pesos. Por defecto sin decimales (convención de la planilla); pasá
+ *  `decimals = 2` para mostrarlos (se usa solo en Ingresos/Egresos). */
+export function fmtARS(n: number | string | null | undefined, decimals: 0 | 2 = 0): string {
   if (n === null || n === undefined || n === "") return "";
-  return `$${ars.format(Number(n))}`;
+  return `$${(decimals === 2 ? ars2 : ars0).format(Number(n))}`;
 }
 
 export function fmtUSD(n: number | string | null | undefined): string {

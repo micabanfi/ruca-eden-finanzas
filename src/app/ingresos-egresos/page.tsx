@@ -1,8 +1,10 @@
 import Link from "next/link";
 import HoldersBox from "@/components/HoldersBox";
+import SantanderBox from "@/components/SantanderBox";
 import TransactionsTables from "@/components/TransactionsTables";
 import ExpenseForm from "@/components/forms/ExpenseForm";
 import IncomeForm from "@/components/forms/IncomeForm";
+import { getCuentaMovimientos, getCuentaSaldo } from "@/db/cuenta";
 import {
   getCategories,
   getEntregas,
@@ -22,11 +24,13 @@ export default async function IngresosEgresosPage({
   searchParams: Promise<{ year?: string }>;
 }) {
   const params = await searchParams;
-  const [years, categories, balances, entregas] = await Promise.all([
+  const [years, categories, balances, entregas, cuentaSaldo, cuentaMovs] = await Promise.all([
     readWithRetry(() => getYears()),
     readWithRetry(() => getCategories()),
     readWithRetry(() => getHolderBalances()),
     readWithRetry(() => getEntregas()),
+    readWithRetry(() => getCuentaSaldo()),
+    readWithRetry(() => getCuentaMovimientos()),
   ]);
   const current = new Date().getFullYear();
   const year = Number(params.year) || (years.includes(current) ? current : years.at(-1)!);
@@ -52,7 +56,10 @@ export default async function IngresosEgresosPage({
           </Link>
         ))}
       </div>
-      <HoldersBox balances={balances} entregas={entregas} />
+      <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2">
+        <HoldersBox balances={balances} entregas={entregas} />
+        <SantanderBox saldo={cuentaSaldo} movimientos={cuentaMovs} />
+      </div>
       <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
         <IncomeForm />
         <ExpenseForm categories={categories} />

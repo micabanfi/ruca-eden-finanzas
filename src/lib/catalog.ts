@@ -13,7 +13,12 @@ export const PAYMENT_METHODS = [
   "Paypal",
   "Airbnb",
   "Cash",
+  "Santander",
 ];
+
+// Dónde entra/sale la seña de una reserva. "Santander" alimenta la cuenta
+// bi-moneda en Ingresos/Egresos; el resto es solo informativo.
+export const DEPOSIT_ACCOUNTS = ["Cash", "Santander"];
 
 // Color de chip por plataforma (compartido por ReservationsTable y el calendario)
 export const PLATFORM_COLORS: Record<string, string> = {

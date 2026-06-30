@@ -4,7 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addReservation } from "@/actions/reservations";
 import PaymentMethodField from "@/components/forms/PaymentMethodField";
-import { CABINS, PLATFORMS } from "@/lib/catalog";
+import { CABINS, DEPOSIT_ACCOUNTS, PLATFORMS } from "@/lib/catalog";
 
 const input =
   "rounded border border-neutral-300 px-2 py-1 text-sm focus:border-green-700 focus:outline-none";
@@ -24,6 +24,7 @@ export default function ReservationForm() {
   const [checkout, setCheckout] = useState("");
   const [price, setPrice] = useState("");
   const [total, setTotal] = useState("");
+  const [accountOther, setAccountOther] = useState(false);
 
   const nights = nightsBetween(checkin, checkout);
 
@@ -130,9 +131,35 @@ export default function ReservationForm() {
           value={total} onChange={(e) => syncFromTotal(e.target.value)} />
       </label>
       <label className="flex flex-col text-xs">
-        Seña (USD)
-        <input type="number" name="deposit_usd" step="0.01" min="0"
+        Seña
+        <input type="number" name="deposit_amount" step="0.01" min="0"
           className={`${input} w-24 text-right`} />
+      </label>
+      <label className="flex flex-col text-xs">
+        Moneda
+        <select name="deposit_currency" defaultValue="USD" className={input}>
+          <option value="USD">USD</option>
+          <option value="ARS">Pesos</option>
+        </select>
+      </label>
+      <label className="flex flex-col text-xs">
+        Cuenta seña
+        {accountOther ? (
+          <span className="flex items-center gap-1">
+            <input autoFocus type="text" name="deposit_account" placeholder="a mano…" className={`${input} w-28`} />
+            <button type="button" title="Volver a la lista" onClick={() => setAccountOther(false)}
+              className="rounded px-1 text-neutral-500 hover:bg-neutral-200">↩</button>
+          </span>
+        ) : (
+          <select name="deposit_account" defaultValue="" className={input}
+            onChange={(e) => { if (e.target.value === "__otro__") setAccountOther(true); }}>
+            <option value="">—</option>
+            {DEPOSIT_ACCOUNTS.map((a) => (
+              <option key={a}>{a}</option>
+            ))}
+            <option value="__otro__">Otro…</option>
+          </select>
+        )}
       </label>
       <PaymentMethodField inputClass={input} />
       <div className="flex flex-col text-xs">

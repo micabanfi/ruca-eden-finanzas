@@ -12,6 +12,9 @@ export interface Reservation {
   price_per_night: string | null;
   total_usd: string | null;
   deposit_usd: string | null;
+  deposit_ars: string | null;
+  deposit_account: string | null;
+  deposit_currency: string | null;
   balance_usd: string | null;
   payment_method: string | null;
   collected: number | null;
@@ -32,7 +35,8 @@ export async function getReservations(): Promise<Reservation[]> {
     SELECT id, to_char(checkin,'YYYY-MM-DD') AS checkin,
            to_char(checkout,'YYYY-MM-DD') AS checkout,
            guest_name, phone, cabin, platform, nights, price_per_night,
-           total_usd, deposit_usd, balance_usd, payment_method, collected,
+           total_usd, deposit_usd, deposit_ars, deposit_account, deposit_currency,
+           balance_usd, payment_method, collected,
            who_has_money, notes, to_char(cancelled_at,'YYYY-MM-DD') AS cancelled_at
     FROM reservations
     ORDER BY checkin, id`;

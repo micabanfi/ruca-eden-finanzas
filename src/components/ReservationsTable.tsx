@@ -8,7 +8,7 @@ import BlockingSpinner from "@/components/BlockingSpinner";
 import PaymentMethodField from "@/components/forms/PaymentMethodField";
 import type { BookingAlert, Reservation } from "@/db/reservations";
 import { CABINS, HOLDERS, PLATFORMS, PLATFORM_COLORS } from "@/lib/catalog";
-import { fmtDate, fmtUSD } from "@/lib/format";
+import { fmtARS, fmtDate, fmtUSD } from "@/lib/format";
 
 function EditableCell({
   id,
@@ -341,7 +341,8 @@ export default function ReservationsTable({
         <thead>
           <tr>
             {["CheckIn", "CheckOut", "Nombre", "Cel", "Cabaña", "Plataforma", "Noches",
-              "Precio x noche", "Total", "Seña", "Restante", "Método pago (seña)", "Alertas", ""].map((h, i) => (
+              "Precio x noche", "Total", "Seña USD", "Seña $", "Cuenta seña", "Restante",
+              "Método pago (seña)", "Alertas", ""].map((h, i) => (
               <th key={h || `del-${i}`} className={th}>{h}</th>
             ))}
           </tr>
@@ -355,6 +356,7 @@ export default function ReservationsTable({
               future &&
               r.platform !== "AirBnb" &&
               !(Number(r.deposit_usd) > 0) &&
+              !(Number(r.deposit_ars) > 0) &&
               !r.payment_method &&
               r.collected !== 1;
             return (
@@ -407,6 +409,12 @@ export default function ReservationsTable({
                   ) : (
                     fmtUSD(r.deposit_usd)
                   )}
+                </EditableCell>
+                <EditableCell id={r.id} field="deposit_ars" type="number" raw={r.deposit_ars ?? ""} className={tdR}>
+                  {fmtARS(r.deposit_ars, 2)}
+                </EditableCell>
+                <EditableCell id={r.id} field="deposit_account" raw={r.deposit_account ?? ""} className={`${td} max-w-32 truncate`}>
+                  {r.deposit_account}
                 </EditableCell>
                 <EditableCell id={r.id} field="balance_usd" type="number" raw={r.balance_usd ?? ""} className={tdR}>
                   {fmtUSD(r.balance_usd)}
