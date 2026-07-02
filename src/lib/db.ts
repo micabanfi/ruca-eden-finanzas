@@ -8,8 +8,13 @@ import postgres from "postgres";
 // Vercel congela la instancia y el socket de la conexión puede morir; si lo
 // reusamos, la query queda colgada para siempre (timeout de 300s). Por eso:
 //   - prepare: false   -> el pooler en modo transacción no soporta prepared statements
-//   - max: 5           -> varias conexiones; una zombie no bloquea a las demás. Cada
-//                         página corre sus queries (Promise.all) en paralelo.
+//   - max: 10          -> DEBE ser >= la cantidad de queries que una página dispara en
+//                         paralelo (Promise.all). Las páginas pesadas (dashboard,
+//                         ingresos-egresos) lanzan ~6-8. Con max:5 (< 8) las queries
+//                         sobrantes se encolaban y el handoff de conexión contra el
+//                         pooler de transacción se colgaba para siempre -> timeout de
+//                         readWithRetry -> "A server error occurred". Con max:10 no hay
+//                         encolado y además una conexión zombie no bloquea a las demás.
 //   - idle_timeout: 20 -> cierra conexiones ociosas rápido (no quedan zombies dando vueltas)
 //   - max_lifetime: 60 -> recicla cada conexión al minuto: nunca se reusa una vieja/muerta
 //   - connect_timeout: 10 -> falla rápido si no puede conectar (en vez de colgar)
@@ -21,7 +26,7 @@ export const sql =
   globalForDb.sql ??
   postgres(process.env.DATABASE_URL!, {
     prepare: false,
-    max: 5,
+    max: 10,
     idle_timeout: 20,
     max_lifetime: 60,
     connect_timeout: 10,

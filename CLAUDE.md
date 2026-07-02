@@ -64,7 +64,12 @@ serverless, así que:
   Session Pooler 5432, que agota conexiones y da errores intermitentes
   "A server error occurred").
 - `prepare: false` (el pooler en modo transacción no soporta prepared statements),
-  `max: 1` (1 conexión por instancia), `idle_timeout: 20`, `connect_timeout: 10`.
+  `max: 10`, `idle_timeout: 20`, `max_lifetime: 60`, `connect_timeout: 10`.
+  **`max` DEBE ser >= la cantidad máxima de queries que una página lanza en
+  paralelo** (`Promise.all`; dashboard/ingresos-egresos lanzan ~6-8). Si `max` <
+  esa cantidad, las queries sobrantes se encolan y el handoff de conexión contra
+  el pooler de transacción se cuelga → timeout de `readWithRetry` → "A server
+  error occurred" (bug 2026-07-02, cuando `max` era 5).
 
 ## Convenciones
 
