@@ -4,7 +4,7 @@ import SantanderBox from "@/components/SantanderBox";
 import TransactionsTables from "@/components/TransactionsTables";
 import ExpenseForm from "@/components/forms/ExpenseForm";
 import IncomeForm from "@/components/forms/IncomeForm";
-import { getCuentaMovimientos, getCuentaSaldo } from "@/db/cuenta";
+import { getCuentaMovimientos, getCuentaSaldo, getSaldoInicial } from "@/db/cuenta";
 import {
   getCategories,
   getEntregas,
@@ -24,14 +24,16 @@ export default async function IngresosEgresosPage({
   searchParams: Promise<{ year?: string }>;
 }) {
   const params = await searchParams;
-  const [years, categories, balances, entregas, cuentaSaldo, cuentaMovs] = await Promise.all([
-    readWithRetry(() => getYears()),
-    readWithRetry(() => getCategories()),
-    readWithRetry(() => getHolderBalances()),
-    readWithRetry(() => getEntregas()),
-    readWithRetry(() => getCuentaSaldo()),
-    readWithRetry(() => getCuentaMovimientos()),
-  ]);
+  const [years, categories, balances, entregas, cuentaSaldo, cuentaMovs, saldoInicial] =
+    await Promise.all([
+      readWithRetry(() => getYears()),
+      readWithRetry(() => getCategories()),
+      readWithRetry(() => getHolderBalances()),
+      readWithRetry(() => getEntregas()),
+      readWithRetry(() => getCuentaSaldo()),
+      readWithRetry(() => getCuentaMovimientos()),
+      readWithRetry(() => getSaldoInicial()),
+    ]);
   const current = new Date().getFullYear();
   const year = Number(params.year) || (years.includes(current) ? current : years.at(-1)!);
   const [txs, pendientes] = await Promise.all([
@@ -58,7 +60,7 @@ export default async function IngresosEgresosPage({
       </div>
       <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2">
         <HoldersBox balances={balances} entregas={entregas} />
-        <SantanderBox saldo={cuentaSaldo} movimientos={cuentaMovs} />
+        <SantanderBox saldo={cuentaSaldo} movimientos={cuentaMovs} saldoInicial={saldoInicial} />
       </div>
       <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
         <IncomeForm />

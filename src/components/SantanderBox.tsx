@@ -9,8 +9,11 @@ import {
   restaurarMovimiento,
   setSaldoInicial,
 } from "@/actions/cuenta";
-import type { CuentaMov, CuentaSaldo } from "@/db/cuenta";
+import type { CuentaMov, CuentaSaldo, SaldoInicial } from "@/db/cuenta";
 import { fmtARS, fmtDate, fmtUSD } from "@/lib/format";
+
+// Cuántos movimientos mostrar de entrada en el popup (el resto con "ver más").
+const PAGE = 50;
 
 const input =
   "rounded border border-neutral-300 bg-white px-1.5 py-0.5 text-xs focus:border-green-700 focus:outline-none";
@@ -25,14 +28,17 @@ type Panel = "fx" | "manual" | "apertura" | null;
 export default function SantanderBox({
   saldo,
   movimientos,
+  saldoInicial,
 }: {
   saldo: CuentaSaldo;
   movimientos: CuentaMov[];
+  saldoInicial: SaldoInicial;
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const [panel, setPanel] = useState<Panel>(null);
   const [showMovs, setShowMovs] = useState(false);
+  const [visible, setVisible] = useState(PAGE);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -163,19 +169,24 @@ export default function SantanderBox({
         <form ref={formRef} action={(fd) => onSubmit(fd, setSaldoInicial)}
           className="mt-2 flex flex-wrap items-end gap-2">
           <span className="w-full text-neutral-500">
-            La plata que ya tenés en la cuenta hoy. Se cuenta desde acá (editable).
+            La plata REAL que tenés en la cuenta a esta fecha. Solo se le suman/restan
+            los movimientos <b>posteriores</b> a esta fecha (los gastos anteriores no
+            la tocan). Editar acá pisa el saldo inicial anterior.
           </span>
           <label className="flex flex-col">
             Pesos
-            <input type="number" name="delta_ars" step="0.01" defaultValue="0" className={`${input} w-32 text-right`} />
+            <input type="number" name="delta_ars" step="0.01"
+              defaultValue={saldoInicial.delta_ars ?? "0"} className={`${input} w-32 text-right`} />
           </label>
           <label className="flex flex-col">
             USD
-            <input type="number" name="delta_usd" step="0.01" defaultValue="0" className={`${input} w-28 text-right`} />
+            <input type="number" name="delta_usd" step="0.01"
+              defaultValue={saldoInicial.delta_usd ?? "0"} className={`${input} w-28 text-right`} />
           </label>
           <label className="flex flex-col">
             Fecha
-            <input type="date" name="date" required defaultValue={today()} className={input} />
+            <input type="date" name="date" required
+              defaultValue={saldoInicial.date ?? today()} className={input} />
           </label>
           <button type="submit" disabled={pending}
             className="rounded bg-neutral-700 px-3 py-1 font-medium text-white hover:bg-neutral-800 disabled:opacity-50">
@@ -214,10 +225,20 @@ export default function SantanderBox({
                   {activos.length === 0 && (
                     <tr><td colSpan={5} className="px-2 py-3 text-center text-neutral-400">Sin movimientos todavía</td></tr>
                   )}
-                  {activos.map((m, i) => (
+                  {activos.slice(0, visible).map((m, i) => (
                     <MovRow key={m.id ? `c${m.id}` : `d${m.source}${i}`} m={m}
                       onCancel={(id) => run(() => cancelarMovimiento(id))} pending={pending} />
                   ))}
+                  {activos.length > visible && (
+                    <tr>
+                      <td colSpan={5} className="px-2 py-2 text-center">
+                        <button onClick={() => setVisible((v) => v + PAGE)}
+                          className="rounded bg-sky-100 px-3 py-1 font-medium text-sky-800 hover:bg-sky-200">
+                          Ver más ({activos.length - visible} restantes)
+                        </button>
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

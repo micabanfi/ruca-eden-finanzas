@@ -144,15 +144,18 @@ export interface Entrega {
   amount_ars: string | null;
   currency: string;
   notes: string | null;
+  cancelled: boolean;
 }
 
+/** Historial de entregas (activas + canceladas, con flag) para el cuadro de
+ *  "Plata en manos de": editables y reversibles desde ahí. */
 export async function getEntregas(): Promise<Entrega[]> {
   return sql<Entrega[]>`
     SELECT id, to_char(date,'YYYY-MM-DD') AS date, holder, amount_usd, amount_ars,
-           COALESCE(currency, 'USD') AS currency, notes
+           COALESCE(currency, 'USD') AS currency, notes,
+           (cancelled_at IS NOT NULL) AS cancelled
     FROM entregas
-    WHERE cancelled_at IS NULL
-    ORDER BY date DESC, id DESC LIMIT 20`;
+    ORDER BY (cancelled_at IS NOT NULL), date DESC, id DESC LIMIT 40`;
 }
 
 export async function getYears(): Promise<number[]> {
