@@ -2,7 +2,7 @@ import EditableTxCell from "@/components/EditableTxCell";
 import EntregaPopup from "@/components/EntregaPopup";
 import PendingCobroRow from "@/components/PendingCobroRow";
 import type { PendingCobro, Tx } from "@/db/transactions";
-import { PAYMENT_METHODS } from "@/lib/catalog";
+import { HOLDERS, PAYMENT_METHODS } from "@/lib/catalog";
 import { fmtARS, fmtDate, fmtUSD } from "@/lib/format";
 
 const th =
@@ -23,15 +23,23 @@ function holderOf(t: Tx): string | null {
   return null;
 }
 
-/** Celda "Metodo Pago" de un ingreso. Si lo tiene una persona (no Mica), muestra
- *  un "+" para registrar que se entregó a Mica; una vez registrada, la celda pasa
- *  a "<método> → Mica" y el "+" reabre el popup para ver/editar/deshacer. */
+/** Celda "Metodo Pago" de un ingreso, editable por doble-click. Si lo tiene una
+ *  persona (no Mica), muestra un "+" para registrar que se entregó a Mica; una vez
+ *  registrada, la celda pasa a "<método> → Mica" y el "+" reabre el popup. */
 function MetodoPagoCell({ t }: { t: Tx }) {
   const holder = holderOf(t);
   const person = holder && holder !== "Mica" ? holder : null;
   const label = t.payment_method ?? holder ?? "";
   return (
-    <td className={`${td} whitespace-nowrap`}>
+    <EditableTxCell
+      id={t.id}
+      field="payment_method"
+      type="select"
+      options={PAYMENT_METHODS}
+      raw={t.payment_method ?? ""}
+      className={`${td} whitespace-nowrap`}
+      after={person ? <EntregaPopup tx={t} holder={person} /> : undefined}
+    >
       {t.entrega_id ? (
         <span title="Se entregó a Mica" className="text-amber-900">
           {label} → Mica
@@ -39,8 +47,7 @@ function MetodoPagoCell({ t }: { t: Tx }) {
       ) : (
         <span>{label}</span>
       )}
-      {person && <EntregaPopup tx={t} holder={person} />}
-    </td>
+    </EditableTxCell>
   );
 }
 
@@ -48,8 +55,9 @@ type Item =
   | { kind: "group"; date: string; txs: Tx[] }
   | { kind: "pending"; date: string; p: PendingCobro };
 
-/** Filas de un cobro (seña + resto comparten Fecha/Nombre). Si la reserva fue
- *  cancelada y se cobró igual, va resaltado en rojo con badge. */
+/** Filas de un cobro (seña + resto comparten Fecha/Nombre). Todas las celdas son
+ *  editables por doble-click (fecha, nombre, precio USD, quién lo tiene, método).
+ *  Si la reserva fue cancelada y se cobró igual, va resaltado en rojo con badge. */
 function IncomeGroupRows({ txs }: { txs: Tx[] }) {
   const cancelado = txs.some((t) => t.from_cancelled);
   return txs.map((t, i) => (
@@ -59,14 +67,12 @@ function IncomeGroupRows({ txs }: { txs: Tx[] }) {
     >
       {i === 0 && (
         <>
-          <td rowSpan={txs.length} className={`${td} whitespace-nowrap`}>
+          <EditableTxCell id={t.id} field="date" type="date" raw={t.date}
+            rowSpan={txs.length} className={`${td} whitespace-nowrap`}>
             {fmtDate(t.date)}
-          </td>
-          <td
-            rowSpan={txs.length}
-            className={`${td} max-w-48 truncate font-medium`}
-            title={t.notes ?? undefined}
-          >
+          </EditableTxCell>
+          <EditableTxCell id={t.id} field="description" raw={t.description ?? ""}
+            rowSpan={txs.length} className={`${td} max-w-48 truncate font-medium`}>
             {t.description}
             {t.notes && <span title={t.notes}> 📝</span>}
             {cancelado && (
@@ -77,11 +83,17 @@ function IncomeGroupRows({ txs }: { txs: Tx[] }) {
                 🚫 canceló · se cobró
               </span>
             )}
-          </td>
+          </EditableTxCell>
         </>
       )}
-      <td className={`${td} text-right tabular-nums`}>{fmtUSD(t.amount_usd)}</td>
-      <td className={`${td} whitespace-nowrap`}>{holderOf(t)}</td>
+      <EditableTxCell id={t.id} field="amount_usd" type="number" raw={t.amount_usd ?? ""}
+        className={`${td} text-right tabular-nums`}>
+        {fmtUSD(t.amount_usd)}
+      </EditableTxCell>
+      <EditableTxCell id={t.id} field="holder" type="select" options={HOLDERS}
+        raw={holderOf(t) ?? ""} className={`${td} whitespace-nowrap`}>
+        {holderOf(t)}
+      </EditableTxCell>
       <MetodoPagoCell t={t} />
     </tr>
   ));

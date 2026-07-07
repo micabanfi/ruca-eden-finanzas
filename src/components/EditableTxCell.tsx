@@ -16,6 +16,8 @@ export default function EditableTxCell({
   options,
   className,
   children,
+  rowSpan,
+  after,
 }: {
   id: string;
   field: string;
@@ -24,6 +26,10 @@ export default function EditableTxCell({
   options?: string[];
   className: string;
   children: ReactNode;
+  /** para celdas combinadas (seña + resto comparten Fecha/Nombre) */
+  rowSpan?: number;
+  /** contenido extra que NO entra en la edición (ej: el "+" de entrega) */
+  after?: ReactNode;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -46,7 +52,7 @@ export default function EditableTxCell({
     const opts =
       type === "select" && raw && !options?.includes(raw) ? [raw, ...(options ?? [])] : options;
     return (
-      <td className={className}>
+      <td className={className} rowSpan={rowSpan}>
         {type === "select" ? (
           <select
             autoFocus
@@ -82,9 +88,11 @@ export default function EditableTxCell({
     <td
       className={`${className} ${pending ? "bg-amber-100 opacity-60" : "cursor-text"}`}
       title={pending ? "Guardando…" : "Doble click para editar"}
+      rowSpan={rowSpan}
       onDoubleClick={() => !pending && setEditing(true)}
     >
       {children}
+      {after}
       <BlockingSpinner show={pending} label="Guardando…" />
     </td>
   );

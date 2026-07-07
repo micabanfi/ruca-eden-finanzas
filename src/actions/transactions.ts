@@ -66,6 +66,31 @@ export async function updateTransaction(
     return { ok: true };
   }
 
+  // quién tiene la plata de un ingreso (editable desde Ingresos Inquilinos)
+  if (field === "holder") {
+    await sql`UPDATE transactions SET holder = ${v || null} WHERE id = ${id}`;
+    revalidate();
+    return { ok: true };
+  }
+
+  // precio en USD de un ingreso. Si el ingreso es nativo en pesos y tiene blue,
+  // se mantiene amount_ars consistente (ars = usd * blue).
+  if (field === "amount_usd") {
+    const num = Number(v);
+    if (!Number.isFinite(num) || num <= 0) return { ok: false, error: "Precio inválido" };
+    const [t] = await sql<{ currency: string | null; blue_rate: string | null }[]>`
+      SELECT currency, blue_rate FROM transactions WHERE id = ${id}`;
+    if (!t) return { ok: false, error: "Ingreso no encontrado" };
+    const blue = t.blue_rate === null ? null : Number(t.blue_rate);
+    if (t.currency === "ARS" && blue && blue > 0) {
+      await sql`UPDATE transactions SET amount_usd = ${num}, amount_ars = ${num * blue} WHERE id = ${id}`;
+    } else {
+      await sql`UPDATE transactions SET amount_usd = ${num} WHERE id = ${id}`;
+    }
+    revalidate();
+    return { ok: true };
+  }
+
   // texto libre: category y payment_method espejan su columna *_raw
   if (TX_TEXT_FIELDS.has(field)) {
     if (field === "category") {
