@@ -14,7 +14,7 @@ CREATE TABLE reservations (
     checkout        DATE NOT NULL,
     guest_name      TEXT,
     phone           TEXT,
-    cabin           TEXT,               -- Alerce/Cohiue/Maiten/Ruca/Ruca Chico/Ruqui/TODAS
+    cabin           TEXT,               -- Alerce/Coihue(viejo:Cohiue)/Maiten/Ruca/Ruca Chico/Ruqui/TODAS
     platform        TEXT,               -- AirBnb/WA/Meli/Booking/Instagram/Parairnos/Terceros
     nights          INTEGER,
     price_per_night NUMERIC,

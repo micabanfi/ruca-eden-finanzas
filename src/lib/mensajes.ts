@@ -6,14 +6,16 @@ export const JOTFORM_FORM_ID = "251346404353047";
 // Pax máximo por cabaña (editable en cada mensaje desde la UI).
 export const CABIN_PAX: Record<string, number> = {
   Alerce: 8,
-  Cohiue: 6,
+  Coihue: 6,
+  Cohiue: 6, // grafía vieja, se sigue aceptando
   Maiten: 8,
   Ruca: 8,
   "Ruca Chico": 4,
   Ruqui: 6,
 };
 
-// Cómo se escribe la cabaña en los mensajes/contrato (Mimi usa "Coihue").
+// La grafía correcta es "Coihue"; datos viejos pueden decir "Cohiue" → se muestran
+// como "Coihue" igual.
 const MSG_CABIN: Record<string, string> = { Cohiue: "Coihue" };
 export const dispCabin = (name: string): string => MSG_CABIN[name] ?? name;
 
@@ -42,7 +44,7 @@ export const nightsBetween = (checkin: string, checkout: string): number => {
 export const fmtMonto = (n: number): string =>
   Number.isFinite(n) ? Math.round(n).toLocaleString("es-AR") : "";
 
-const ddmm = (d: string): string => {
+export const ddmm = (d: string): string => {
   const [, m, day] = d.split("-");
   return d ? `${day}/${m}` : "";
 };
@@ -78,6 +80,83 @@ export function buildReservaMsg(d: ReservaData): string {
     `Gastos extra: ${d.gastosExtra}`,
     `Deposito por daños: ${fmtMonto(d.deposito)} USD (${multi ? "por cabaña, " : ""}al momento del check-in)`,
   ].join("\n");
+}
+
+// ── Datos de alquileres (listado para el encargado) ─────────────────────────
+
+/** Depósito por daños que se pide SOLO en reservas directas (no plataforma).
+ *  Ver texto ACLARACIONES: "Al no ser por plataforma solicitamos… 300USD". */
+export const DEPOSITO_DANIOS = 300;
+
+/** Subconjunto de `Reservation` que usa el listado de datos de alquileres. */
+export interface ResForDatos {
+  id: string;
+  checkin: string; // YYYY-MM-DD
+  checkout: string; // YYYY-MM-DD
+  guest_name: string | null;
+  phone: string | null;
+  cabin: string | null;
+  platform: string | null;
+  total_usd: string | null;
+  balance_usd: string | null;
+  collected: number | null;
+  cancelled_at: string | null;
+}
+
+export interface DatosAlqOpts {
+  desde: string; // YYYY-MM-DD (inclusive)
+  hasta: string; // YYYY-MM-DD (inclusive)
+  invitadaIds: Iterable<string>;
+}
+
+const isAirbnb = (platform: string | null): boolean => /airbnb/i.test(platform ?? "");
+
+/** Reservas del rango que se van a listar (no canceladas, check-in en [desde,hasta]),
+ *  ordenadas por check-in y cabaña. Se expone para poder cruzar con el calendario. */
+export function reservasEnRango<T extends ResForDatos>(reservations: T[], desde: string, hasta: string): T[] {
+  return reservations
+    .filter((r) => !r.cancelled_at && r.checkin >= desde && r.checkin <= hasta)
+    .sort((a, b) => a.checkin.localeCompare(b.checkin) || (a.cabin ?? "").localeCompare(b.cabin ?? ""));
+}
+
+/** Listado TXT de próximas llegadas para copiar y pegar (formato del encargado). */
+export function buildDatosAlquileres(reservations: ResForDatos[], opts: DatosAlqOpts): string {
+  const invitadas = new Set(opts.invitadaIds);
+  const enRango = reservasEnRango(reservations, opts.desde, opts.hasta);
+
+  const header = [
+    "RESERVAS — próximas llegadas",
+    `(del ${ddmm(opts.desde)} al ${ddmm(opts.hasta)})`,
+  ].join("\n");
+
+  if (enRango.length === 0) {
+    return `${header}\n\n(no hay llegadas en este rango)`;
+  }
+
+  const bloques = enRango.map((r) => {
+    const lineas = [
+      `${ddmm(r.checkin)} al ${ddmm(r.checkout)}`,
+      dispCabin(r.cabin ?? "—"),
+      r.guest_name || "—",
+      r.phone || "—",
+    ];
+    if (invitadas.has(r.id)) {
+      lineas.push("🎁 invitada — no cobrar");
+    } else if (isAirbnb(r.platform)) {
+      lineas.push("Plataforma");
+    } else {
+      if (r.collected === 1) {
+        lineas.push("alquiler ya cobrado");
+      } else {
+        const restante = Number(r.balance_usd ?? r.total_usd ?? 0);
+        lineas.push(`cobrar de alquiler: ${Math.round(restante)} usd`);
+      }
+      lineas.push(`deposito por danios: ${DEPOSITO_DANIOS}usd`);
+    }
+    return lineas.join("\n");
+  });
+
+  return `${header}\n\n${bloques.join("\n\n")}`;
 }
 
 /** Datos para prellenar el contrato JotForm por URL (campos que completa Mimi). */

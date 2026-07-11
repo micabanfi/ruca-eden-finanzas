@@ -1,42 +1,21 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import CopyBtn from "@/components/CopyBtn";
 import { createContractLink } from "@/actions/contracts";
 import {
   ACLARACIONES,
   buildJotformUrl,
   buildReservaMsg,
   CABIN_PAX,
-  fmtMonto,
   nightsBetween,
   type CabinSel,
   type ReservaData,
 } from "@/lib/mensajes";
 
-const CABINS = ["Alerce", "Cohiue", "Maiten", "Ruca", "Ruca Chico", "Ruqui"];
+const CABINS = ["Alerce", "Coihue", "Maiten", "Ruca", "Ruca Chico", "Ruqui"];
 const input =
   "rounded border border-neutral-300 bg-white px-2 py-1 text-sm focus:border-green-700 focus:outline-none";
-
-function CopyBtn({ text, label = "Copiar" }: { text: string; label?: string }) {
-  const [done, setDone] = useState(false);
-  return (
-    <button
-      type="button"
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(text);
-          setDone(true);
-          setTimeout(() => setDone(false), 1500);
-        } catch {
-          /* ignore */
-        }
-      }}
-      className="rounded bg-green-700 px-3 py-1 text-sm font-medium text-white hover:bg-green-800"
-    >
-      {done ? "¡Copiado!" : label}
-    </button>
-  );
-}
 
 export default function MensajesPanel() {
   const [guest, setGuest] = useState("");

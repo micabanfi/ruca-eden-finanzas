@@ -1,5 +1,7 @@
 // Shared option lists (mirror the sheet's vocab)
-export const CABINS = ["Alerce", "Cohiue", "Maiten", "Ruca", "Ruca Chico", "Ruqui", "TODAS"];
+// "Coihue" es la grafía correcta (canónica para reservas nuevas). Datos viejos
+// pueden tener "Cohiue"; se siguen aceptando (ver normalizeCabin / phys en ical.ts).
+export const CABINS = ["Alerce", "Coihue", "Maiten", "Ruca", "Ruca Chico", "Ruqui", "TODAS"];
 export const PLATFORMS = ["AirBnb", "WA", "Booking", "Instagram", "Meli", "Parairnos", "Terceros"];
 // Quién puede tener la plata de un cobro (Paypal = sin retirar de la cuenta)
 export const HOLDERS = ["Mica", "Gustavo", "Carlos", "Nati", "Male", "Aline", "Paypal"];

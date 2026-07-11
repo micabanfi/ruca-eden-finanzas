@@ -6,7 +6,7 @@ const CABIN_PATTERNS: [RegExp, string][] = [
   [/ruca\s*chico/i, "Ruca Chico"],
   [/ruqui/i, "Ruqui"],
   [/alerce/i, "Alerce"],
-  [/co[ih]{2}ue/i, "Cohiue"], // coihue / cohiue
+  [/co[ih]{2}ue/i, "Coihue"], // coihue / cohiue → grafía correcta "Coihue"
   [/maiten/i, "Maiten"],
   [/ruca/i, "Ruca"], // al final: "Ruca" es substring de "Ruca Chico"
 ];
@@ -58,10 +58,13 @@ function stripAccents(s: string): string {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "");
 }
 
-/** Casa física: Ruca y Ruca Chico son la misma casa (igual que v_booking_alerts). */
+/** Casa física: Ruca y Ruca Chico son la misma casa (igual que v_booking_alerts).
+ *  Además normaliza la grafía vieja "Cohiue" → "Coihue" para que ambas matcheen. */
 export function phys(cabin: string | null): string | null {
   if (!cabin) return null;
-  return cabin === "Ruca" || cabin === "Ruca Chico" ? "Ruca" : cabin;
+  if (cabin === "Ruca" || cabin === "Ruca Chico") return "Ruca";
+  if (cabin === "Cohiue") return "Coihue";
+  return cabin;
 }
 
 /** Suma n días a 'YYYY-MM-DD' (UTC, sin líos de zona horaria). */

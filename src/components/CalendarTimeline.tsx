@@ -5,7 +5,7 @@ import { fmtDate } from "@/lib/format";
 const MS_DAY = 86_400_000;
 const WD = ["D", "L", "M", "M", "J", "V", "S"];
 // orden de filas pedido por Mimi
-const CABIN_ORDER = ["Alerce", "Ruqui", "Ruca", "Ruca Chico", "Cohiue", "Maiten"];
+const CABIN_ORDER = ["Alerce", "Ruqui", "Ruca", "Ruca Chico", "Coihue", "Maiten"];
 
 interface Bar {
   start: number; // columna inicial (1-based)

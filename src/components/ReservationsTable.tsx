@@ -56,6 +56,8 @@ function EditableCell({
             onKeyDown={(e) => e.key === "Escape" && setEditing(false)}
           >
             {!raw && <option value="">—</option>}
+            {/* valor legacy fuera del catálogo (ej. "Cohiue"): se conserva */}
+            {raw && !options!.includes(raw) && <option key={raw}>{raw}</option>}
             {options!.map((o) => (
               <option key={o}>{o}</option>
             ))}
