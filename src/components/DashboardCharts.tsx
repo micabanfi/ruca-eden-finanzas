@@ -184,7 +184,7 @@ export default function DashboardCharts({
           </Section>
           <Section
             title="Ocupación por temporada"
-            hint="Verano alta (15/12–15/03) · Otoño baja (16/03–jun) · Invierno alta (jul–ago) · Primavera baja (sep–14/12). Sobre 5 casas."
+            hint="El cupo de cada temporada cuenta solo las casas realmente disponibles: Maitén se alquila solo en verano (15/12–15/03) y Coihue también lo hacía hasta el 16/03/2026, desde ahí va todo el año. Ruca y Ruca Chico son la misma casa (cuentan una: o se alquila una o la otra). Septiembre es de uso familiar pero sigue contando como cupo disponible."
           >
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={temporadas} margin={{ left: 10, right: 10 }}>
@@ -198,8 +198,25 @@ export default function DashboardCharts({
             <table className="mt-2 w-full border-collapse text-xs">
               <tbody>
                 {temporadas.map((t) => (
-                  <tr key={t.temporada} className="border-b border-neutral-100">
-                    <td className="py-1 font-medium">{t.temporada}</td>
+                  <tr key={t.temporada} className="border-b border-neutral-100 align-top">
+                    <td className="py-1">
+                      <div className="font-medium">{t.temporada}</div>
+                      <div className="text-[10px] text-neutral-500">
+                        {t.rango}
+                        {t.nota && ` · ${t.nota}`}
+                      </div>
+                    </td>
+                    <td className="py-1 text-right">
+                      <div
+                        className="tabular-nums text-neutral-600"
+                        title={t.casas.map((c) => (c === "Maiten" ? "Maitén" : c)).join(", ")}
+                      >
+                        {t.casas.length} casas
+                      </div>
+                      <div className="text-[10px] text-neutral-400 tabular-nums">
+                        cupo {t.dias_cap}
+                      </div>
+                    </td>
                     <td className="py-1 text-right tabular-nums">{t.noches} noches</td>
                     <td className="py-1 text-right tabular-nums">{t.ocupacion_pct}%</td>
                     <td className="py-1 text-right tabular-nums">{fmtUSD(t.revenue)}</td>

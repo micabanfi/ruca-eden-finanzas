@@ -1,4 +1,5 @@
 import { sql } from "@/lib/db";
+import { phys } from "@/lib/ical";
 
 // year === null => global (todos los años). Rango [desde, hasta).
 function bounds(year: number | null): { desde: string; hasta: string; dias: number } {
@@ -26,24 +27,87 @@ export interface KPIs {
   reservas: number;
 }
 
-// Noches rentables del año por unidad física ("ventana real").
-// Septiembre = uso familiar (no se alquila) → se resta al año completo.
-// Maiten = solo verano. Ruca Chico = misma casa que Ruca (sin cupo propio).
-function capacidadCabana(cabin: string, dias: number): number | null {
-  if (dias === 0) return null; // global
-  if (cabin === "Maiten") return 60;
-  if (cabin === "Ruca Chico") return null; // comparte casa con Ruca
-  return dias - 30; // año completo menos septiembre (30 días)
+// --- Disponibilidad real por casa física (reglas de Mimi, 2026-07-27) --------
+// Casas físicas = 5. "Ruca Chico" NO es una sexta: es la misma casa que Ruca
+// (se alquila una o la otra, nunca las dos) → no suma cupo propio y sus noches
+// se le imputan a Ruca.
+//   · Maitén — solo temporada de verano (15/12–15/03).
+//   · Coihue — era solo verano, igual que Maitén. Desde el 16/03/2026 se
+//     alquila todo el año.
+//   · Alerce, Ruca, Ruqui — todo el año.
+// Septiembre es de uso familiar, pero NO se descuenta del cupo: la casa está
+// disponible y la decisión de no alquilarla es propia. En el gráfico se aclara.
+export const CASAS = ["Alerce", "Coihue", "Maiten", "Ruca", "Ruqui"];
+const COIHUE_TODO_EL_ANIO_DESDE = "2026-03-16";
+
+export const TEMPORADAS = [
+  "Verano (alta)",
+  "Otoño (baja)",
+  "Invierno (alta)",
+  "Primavera (baja)",
+] as const;
+
+// Mismos cortes que el CASE de getOcupacionTemporadas (mantener en sync).
+function temporadaDe(mes: number, dia: number): string {
+  if ((mes === 12 && dia >= 15) || mes === 1 || mes === 2 || (mes === 3 && dia <= 15))
+    return "Verano (alta)";
+  if ((mes === 3 && dia >= 16) || mes === 4 || mes === 5 || mes === 6) return "Otoño (baja)";
+  if (mes === 7 || mes === 8) return "Invierno (alta)";
+  return "Primavera (baja)";
 }
 
-// Cupo total del año: 4 casas de año completo + Maiten (Ruca Chico no suma).
-function capacidadTotal(dias: number): number {
-  if (dias === 0) return 0;
-  return 4 * (dias - 30) + 60;
+function esVerano(mes: number, dia: number): boolean {
+  return temporadaDe(mes, dia) === "Verano (alta)";
+}
+
+function disponible(casa: string, iso: string, mes: number, dia: number): boolean {
+  if (casa === "Maiten") return esVerano(mes, dia);
+  if (casa === "Coihue") return esVerano(mes, dia) || iso >= COIHUE_TODO_EL_ANIO_DESDE;
+  return true;
+}
+
+/** Cupo del año en noches-casa, desglosado por temporada y por casa física.
+ *  Recorre día por día (365/366 × 5 = trivial) para que el corte de Coihue en
+ *  marzo 2026 y los bisiestos caigan exactos, sin constantes a mano. */
+function cupoAnual(year: number) {
+  const porTemporada = new Map<string, number>();
+  const porCasa = new Map<string, number>();
+  const casasDeTemporada = new Map<string, Set<string>>();
+  const d = new Date(Date.UTC(year, 0, 1));
+  while (d.getUTCFullYear() === year) {
+    const mes = d.getUTCMonth() + 1;
+    const dia = d.getUTCDate();
+    const iso = d.toISOString().slice(0, 10);
+    const t = temporadaDe(mes, dia);
+    for (const casa of CASAS) {
+      if (!disponible(casa, iso, mes, dia)) continue;
+      porTemporada.set(t, (porTemporada.get(t) ?? 0) + 1);
+      porCasa.set(casa, (porCasa.get(casa) ?? 0) + 1);
+      if (!casasDeTemporada.has(t)) casasDeTemporada.set(t, new Set());
+      casasDeTemporada.get(t)!.add(casa);
+    }
+    d.setUTCDate(dia + 1);
+  }
+  const total = [...porCasa.values()].reduce((a, b) => a + b, 0);
+  return { porTemporada, porCasa, casasDeTemporada, total };
+}
+
+// Noches rentables del año para una cabaña. null = no tiene cupo propio
+// (Ruca Chico comparte casa con Ruca) o vista global.
+function capacidadCabana(cabin: string, year: number | null): number | null {
+  if (year === null) return null; // global
+  if (cabin === "Ruca Chico") return null; // comparte casa con Ruca
+  return cupoAnual(year).porCasa.get(phys(cabin) ?? cabin) ?? null;
+}
+
+// Cupo total del año sumando las 5 casas según su ventana real.
+function capacidadTotal(year: number | null): number {
+  if (year === null) return 0;
+  return cupoAnual(year).total;
 }
 
 export async function getKPIs(year: number | null): Promise<KPIs> {
-  const { desde, hasta, dias } = bounds(year);
+  const { desde, hasta } = bounds(year);
   // ingresos por checkin (v_monthly_summary), egresos matriz sin Ajuste
   const [ing] = await sql<{ usd: string | null }[]>`
     SELECT ROUND(SUM(ingresos_usd),2) AS usd FROM v_monthly_summary
@@ -63,8 +127,8 @@ export async function getKPIs(year: number | null): Promise<KPIs> {
   const ingresos = Number(ing?.usd ?? 0);
   const egresos = Number(egr?.usd ?? 0);
   const noches = Number(occ?.noches ?? 0);
-  // Cupo "ventana real": año completo menos septiembre × 4 casas + Maiten verano.
-  const capacidad = capacidadTotal(dias);
+  // Cupo "ventana real": suma de las 5 casas según su ventana de alquiler.
+  const capacidad = capacidadTotal(year);
   return {
     ingresos,
     egresos,
@@ -88,7 +152,7 @@ export interface CabinRow {
 }
 
 export async function getPorCabana(year: number | null): Promise<CabinRow[]> {
-  const { desde, hasta, dias } = bounds(year);
+  const { desde, hasta } = bounds(year);
   const rows = await sql<
     { cabin: string; noches: string; tarifa: string | null; revenue: string | null }[]
   >`
@@ -109,7 +173,7 @@ export async function getPorCabana(year: number | null): Promise<CabinRow[]> {
     const noches = Number(r.noches);
     const ingresos = Number(r.revenue ?? 0);
     const prorr = (totalEgresos * noches) / totalNoches;
-    const disponibles = capacidadCabana(r.cabin, dias);
+    const disponibles = capacidadCabana(r.cabin, year);
     // Ruca y Ruca Chico = misma casa: la ocupación de Ruca incluye las noches
     // de Ruca Chico (que no tiene cupo propio), para no subestimar la casa.
     const nochesOcup =
@@ -270,15 +334,26 @@ export async function getTarifaPorMes(year: number): Promise<MesTarifa[]> {
 
 export interface Temporada {
   temporada: string;
+  rango: string; // "15/12–15/03"
+  casas: string[]; // casas realmente disponibles en esa temporada, ese año
+  nota: string | null; // aclaración a mostrar bajo el nombre
   noches: number;
-  dias_cap: number; // días de la temporada × 5 casas
+  dias_cap: number; // cupo real = Σ días disponibles de cada casa
   ocupacion_pct: number;
   revenue: number;
 }
 
+const RANGO_TEMPORADA: Record<string, string> = {
+  "Verano (alta)": "15/12–15/03",
+  "Otoño (baja)": "16/03–30/06",
+  "Invierno (alta)": "01/07–31/08",
+  "Primavera (baja)": "01/09–14/12",
+};
+
 /** Ocupación e ingresos por temporada (alta/baja) de un año.
- * Verano alta 15/12-15/03 · Otoño baja 16/03-30/06 · Invierno alta jul-ago ·
- * Primavera baja 01/09-14/12. Capacidad = días × 5 casas físicas. */
+ * El cupo NO es "días × 5": usa solo las casas disponibles en esa temporada
+ * (Maitén solo verano; Coihue solo verano hasta el 16/03/2026; Ruca y Ruca
+ * Chico cuentan como una sola casa). Ver cupoAnual(). */
 export async function getOcupacionTemporadas(year: number): Promise<Temporada[]> {
   const { desde, hasta } = bounds(year);
   const rows = await sql<{ temporada: string; noches: string; revenue: string | null }[]>`
@@ -294,25 +369,20 @@ export async function getOcupacionTemporadas(year: number): Promise<Temporada[]>
            COUNT(*) AS noches, ROUND(SUM(rate_usd),2) AS revenue
     FROM reservation_nights WHERE night >= ${desde} AND night < ${hasta}
     GROUP BY 1`;
-  const bis = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
-  // días de cada temporada (no bisiesto: 91/107/62/105)
-  const dias: Record<string, number> = {
-    "Verano (alta)": bis ? 92 : 91,
-    "Otoño (baja)": 107,
-    "Invierno (alta)": 62,
-    "Primavera (baja)": 105,
-  };
-  const orden = ["Verano (alta)", "Otoño (baja)", "Invierno (alta)", "Primavera (baja)"];
+  const { porTemporada, casasDeTemporada } = cupoAnual(year);
   const byT = new Map(rows.map((r) => [r.temporada, r]));
-  return orden.map((t) => {
+  return TEMPORADAS.map((t) => {
     const r = byT.get(t);
     const noches = r ? Number(r.noches) : 0;
-    const cap = dias[t] * 5;
+    const cap = porTemporada.get(t) ?? 0;
     return {
       temporada: t,
+      rango: RANGO_TEMPORADA[t],
+      casas: CASAS.filter((c) => casasDeTemporada.get(t)?.has(c)),
+      nota: t === "Primavera (baja)" ? "septiembre familiar" : null,
       noches,
       dias_cap: cap,
-      ocupacion_pct: Math.round((noches / cap) * 1000) / 10,
+      ocupacion_pct: cap ? Math.round((noches / cap) * 1000) / 10 : 0,
       revenue: r ? Number(r.revenue ?? 0) : 0,
     };
   });
