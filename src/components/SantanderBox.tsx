@@ -22,9 +22,11 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 type Panel = "fx" | "manual" | "apertura" | null;
 
-/** Cuenta Banco Santander (bi-moneda). Saldo en pesos y USD + popup de
- *  movimientos ordenados por fecha. Se alimenta de señas/egresos por Santander,
- *  compra-venta de USD (libre) y un saldo inicial editable. */
+/** Cuenta Banco Santander DÉBITO (bi-moneda). Saldo en pesos y USD + popup de
+ *  movimientos ordenados por fecha. Se alimenta de señas con cuenta Santander,
+ *  egresos con método "Alquileres", compra-venta de USD (libre) y un saldo
+ *  inicial editable. Los gastos con la tarjeta de crédito ("Santander TC") NO
+ *  entran: se descuentan al pagar el resumen, como "Mov. manual". */
 export default function SantanderBox({
   saldo,
   movimientos,

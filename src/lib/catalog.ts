@@ -5,7 +5,13 @@ export const CABINS = ["Alerce", "Coihue", "Maiten", "Ruca", "Ruca Chico", "Ruqu
 export const PLATFORMS = ["AirBnb", "WA", "Booking", "Instagram", "Meli", "Parairnos", "Terceros"];
 // Quién puede tener la plata de un cobro (Paypal = sin retirar de la cuenta)
 export const HOLDERS = ["Mica", "Gustavo", "Carlos", "Nati", "Male", "Aline", "Paypal"];
-// Consolidated payment methods (top canonical values in the data)
+// Consolidated payment methods (top canonical values in the data).
+// OJO con los dos "Santander" (Mimi 2026-07-27):
+//  - "Alquileres" = la cuenta DÉBITO del Santander. Es la única que descuenta
+//    del saldo de la cuenta al momento del gasto (ver CUENTA_METHOD en db/cuenta.ts).
+//  - "Santander TC" = la TARJETA DE CRÉDITO. NO toca el saldo cuando comprás;
+//    sale de la cuenta recién cuando pagás el resumen (cargalo como "Mov. manual"
+//    de egreso en el cuadro Banco Santander).
 export const PAYMENT_METHODS = [
   "Carlos",
   "Carlos Amex",
@@ -15,11 +21,12 @@ export const PAYMENT_METHODS = [
   "Paypal",
   "Airbnb",
   "Cash",
-  "Santander",
+  "Santander TC",
 ];
 
-// Dónde entra/sale la seña de una reserva. "Santander" alimenta la cuenta
-// bi-moneda en Ingresos/Egresos; el resto es solo informativo.
+// Dónde entra/sale la seña de una reserva. "Santander" (= la cuenta débito,
+// la misma que el método de pago "Alquileres") alimenta la cuenta bi-moneda en
+// Ingresos/Egresos; el resto es solo informativo.
 export const DEPOSIT_ACCOUNTS = ["Cash", "Santander"];
 
 // Monedas en que se puede cobrar/entregar. value = lo que se guarda en la base;

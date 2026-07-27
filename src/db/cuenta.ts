@@ -1,9 +1,16 @@
 import { sql } from "@/lib/db";
 
-// La cuenta Santander y el método de pago "Alquileres" son la MISMA cuenta
-// (confirmado por Mimi 2026-07-06): los egresos de ambos métodos alimentan el
-// saldo. Este patrón se usa en el saldo y en el detalle de movimientos.
-const CUENTA_METHOD = sql`(payment_method ILIKE '%santander%' OR payment_method ILIKE '%alquileres%')`;
+// La cuenta Santander (débito) es el método de pago "Alquileres" — misma cuenta
+// (confirmado por Mimi 2026-07-06). Sus egresos descuentan del saldo.
+//
+// ⚠️ "Santander TC" (tarjeta de CRÉDITO) NO entra acá (Mimi 2026-07-27): comprar
+// con la tarjeta no saca plata de la cuenta ese día; sale cuando se paga el
+// resumen, que se carga como "Mov. manual" de egreso. Antes se incluía con
+// ILIKE '%santander%' y el saldo quedaba de menos.
+//
+// Match exacto (no substring): hay métodos históricos tipo "cash nati alquileres"
+// o "cash aline alquileres" que son CASH, no la cuenta, y no deben descontar.
+const CUENTA_METHOD = sql`lower(btrim(payment_method)) = 'alquileres'`;
 
 /** Saldo de la cuenta Santander, en sus dos monedas.
  *  Regla de Mimi (2026-07-06): "el número que yo pongo manda". El saldo inicial
@@ -12,7 +19,8 @@ const CUENTA_METHOD = sql`(payment_method ILIKE '%santander%' OR payment_method 
  *  Combina, siempre posterior al saldo inicial:
  *   - cuenta_movimientos activos (ingreso/egreso manual / compra-venta)
  *   - señas de reservas activas con cuenta = Santander (suman; USD o pesos)
- *   - egresos con método Santander/Alquileres (restan; pesos) */
+ *   - egresos con método "Alquileres" = cuenta débito (restan; pesos).
+ *     La tarjeta de crédito ("Santander TC") NO: impacta al pagar el resumen. */
 export interface CuentaSaldo {
   saldo_ars: string;
   saldo_usd: string;
