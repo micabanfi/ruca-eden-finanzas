@@ -108,14 +108,17 @@ function capacidadTotal(year: number | null): number {
 
 export async function getKPIs(year: number | null): Promise<KPIs> {
   const { desde, hasta } = bounds(year);
-  // ingresos por checkin (v_monthly_summary), egresos matriz sin Ajuste
+  // ingresos por checkin (v_monthly_summary), egresos de la matriz.
+  // Los Ajustes (ej. "Pago Ruben" 3.000 USD en 2024) SÍ cuentan acá: son plata que
+  // salió de verdad. La matriz de Pagos Fijos los excluye a propósito (replica la
+  // planilla vieja, donde no eran un gasto fijo mensual), pero el Dashboard mide
+  // el resultado real y tiene que dar lo mismo que el acumulado del Resumen.
   const [ing] = await sql<{ usd: string | null }[]>`
     SELECT ROUND(SUM(ingresos_usd),2) AS usd FROM v_monthly_summary
     WHERE ${year === null ? sql`true` : sql`mes >= ${`${year}-01`} AND mes <= ${`${year}-12`}`}`;
   const [egr] = await sql<{ usd: string | null }[]>`
     SELECT ROUND(SUM(usd),2) AS usd FROM v_pagos_fijos_sheet
-    WHERE category IS DISTINCT FROM 'Ajuste'
-      AND ${year === null ? sql`true` : sql`left(mes,4) = ${String(year)}`}`;
+    WHERE ${year === null ? sql`true` : sql`left(mes,4) = ${String(year)}`}`;
   const [occ] = await sql<{ noches: string; tarifa: string | null }[]>`
     SELECT COUNT(*) AS noches, ROUND(AVG(rate_usd),2) AS tarifa
     FROM reservation_nights WHERE night >= ${desde} AND night < ${hasta}`;
@@ -161,11 +164,11 @@ export async function getPorCabana(year: number | null): Promise<CabinRow[]> {
     FROM reservation_nights
     WHERE night >= ${desde} AND night < ${hasta} AND cabin IS NOT NULL
     GROUP BY cabin ORDER BY revenue DESC NULLS LAST`;
-  // gastos totales del período (sin Ajuste) para prorratear por noches
+  // gastos totales del período para prorratear por noches (Ajustes incluidos,
+  // igual que en los KPIs: si no, la ganancia estimada no cierra con el balance)
   const [egr] = await sql<{ usd: string | null }[]>`
     SELECT ROUND(SUM(amount_usd),2) AS usd FROM transactions
-    WHERE kind='egreso' AND category IS DISTINCT FROM 'Ajuste'
-      AND date >= ${desde} AND date < ${hasta}`;
+    WHERE kind='egreso' AND date >= ${desde} AND date < ${hasta}`;
   const totalEgresos = Number(egr?.usd ?? 0);
   const totalNoches = rows.reduce((a, r) => a + Number(r.noches), 0) || 1;
   const nochesPorCabana = new Map(rows.map((r) => [r.cabin, Number(r.noches)]));
@@ -221,11 +224,13 @@ export async function getGastosPorGrupo(year: number | null): Promise<NamedAmoun
              WHEN category IN ('Sueldo Casero','Sueldo Natalia','Limpieza Casera',
                   'Limpieza Juana','Costo IN/OUT') THEN 'Sueldos y limpieza'
              WHEN category = 'Gastos Varios' THEN 'Arreglos / Gastos Varios'
+             -- grupo propio para que un Ajuste no se esconda dentro de "Otros"
+             WHEN category = 'Ajuste' THEN 'Ajustes'
              ELSE 'Otros'
            END AS grupo,
            ROUND(SUM(amount_usd),2) AS usd, COUNT(*) AS n
     FROM transactions
-    WHERE kind='egreso' AND amount_usd IS NOT NULL AND category IS DISTINCT FROM 'Ajuste'
+    WHERE kind='egreso' AND amount_usd IS NOT NULL
       AND date >= ${desde} AND date < ${hasta}
     GROUP BY 1 ORDER BY 2 DESC`;
   return rows.map((r) => ({ nombre: r.grupo, usd: Number(r.usd), n: Number(r.n) }));
@@ -295,7 +300,7 @@ export async function getSerieAnual(): Promise<YearSerie[]> {
     FROM v_monthly_summary GROUP BY 1`;
   const egr = await sql<{ anio: string; usd: string | null }[]>`
     SELECT left(mes,4) AS anio, ROUND(SUM(usd),2) AS usd
-    FROM v_pagos_fijos_sheet WHERE category IS DISTINCT FROM 'Ajuste' GROUP BY 1`;
+    FROM v_pagos_fijos_sheet GROUP BY 1`; // con Ajustes, igual que los KPIs
   const tar = await sql<{ anio: string; t: string | null }[]>`
     SELECT to_char(night,'YYYY') AS anio, ROUND(AVG(rate_usd),2) AS t
     FROM reservation_nights GROUP BY 1`;
