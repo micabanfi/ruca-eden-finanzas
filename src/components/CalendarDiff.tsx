@@ -2,7 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { runCalendarDiff } from "@/actions/calendar";
-import type { CalItem, DiffResult, ExtEvent } from "@/lib/ical";
+// `import type` se borra al compilar, pero apuntamos igual a ical-core: desde el
+// cliente nunca hay que tocar `@/lib/ical` (node-ical/node:fs rompe el browser).
+import type { CalItem, DiffResult, ExtEvent } from "@/lib/ical-core";
 import { fmtDate } from "@/lib/format";
 
 function Range({ start, end }: { start: string; end: string }) {
@@ -48,13 +50,20 @@ export default function CalendarDiff() {
   function run(force: boolean) {
     setError(null);
     startTransition(async () => {
-      const r = await runCalendarDiff(force);
-      if (!r.ok) {
-        setError(r.error);
+      // Si el action falla de verdad (timeout/red/500) el await rechaza y React 19
+      // lo manda al error boundary → caía la pantalla entera. Se muestra como aviso.
+      try {
+        const r = await runCalendarDiff(force);
+        if (!r.ok) {
+          setError(r.error);
+          setRes(null);
+          return;
+        }
+        setRes(r.result);
+      } catch (e) {
         setRes(null);
-        return;
+        setError(e instanceof Error ? e.message : "No se pudo chequear el calendario");
       }
-      setRes(r.result);
     });
   }
 

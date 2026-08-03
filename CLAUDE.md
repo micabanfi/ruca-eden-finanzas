@@ -92,6 +92,14 @@ serverless, así que:
   Ingresos/Egresos se resalta en rojo detectando `reservations.cancelled_at`
   (join, sin columna nueva).
 - `claude-opus-4-8` es el modelo del Asistente (`src/actions/asistente.ts`).
+- ⚠️ **Nunca importes un módulo solo-servidor desde un `"use client"`.** Caso real:
+  `src/lib/ical.ts` usa `node-ical` (necesita `node:fs`); un componente cliente le
+  importó un valor y el browser explotó al evaluar el módulo → la página no
+  hidrata y aparece "This page couldn't load", con el server devolviendo **200**
+  (no se ve nada en los logs de Vercel) y el **build pasando OK**. Por eso existe
+  `src/lib/ical-core.ts`: tipos y helpers puros. Desde el cliente se importa de
+  ahí; `ical.ts` lo re-exporta para el servidor. Si el error dice "Reload to try
+  again, **or go back**" (sin `digest`), el error es del cliente, no del server.
 
 ## Deploy
 

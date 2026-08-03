@@ -1,10 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { sql } from "@/lib/db";
+import { readWithRetry, sql } from "@/lib/db";
 import type { ActionResult } from "@/actions/transactions";
 import { getCalendarSources } from "@/db/calendar";
-import { getReservations } from "@/db/reservations";
+import { getCurrentReservations } from "@/db/reservations";
 import { CABINS } from "@/lib/catalog";
 import {
   applyAirbnbNames,
@@ -63,9 +63,12 @@ export type DiffResponse =
  *  las reservas de la app. No escribe nada en la base. */
 export async function runCalendarDiff(force = false): Promise<DiffResponse> {
   try {
+    // Las dos lecturas van con readWithRetry como el resto del repo: sin él, una
+    // conexión zombie del pooler cuelga la query para siempre y el action se come
+    // los 30s de maxDuration en vez de fallar en 10s y reintentar.
     const [sources, reservations] = await Promise.all([
-      getCalendarSources(),
-      getReservations(),
+      readWithRetry(() => getCalendarSources()),
+      readWithRetry(() => getCurrentReservations()),
     ]);
     const active = sources.filter((s) => s.active);
     if (active.length === 0)
@@ -85,7 +88,9 @@ export async function runCalendarDiff(force = false): Promise<DiffResponse> {
         phone: r.phone,
       }));
 
-    // derivar nombre de las reservas de Airbnb y separar por origen
+    // derivar nombre de las reservas de Airbnb y separar por origen. Solo se
+    // nombran las que matchean una reserva vigente, que son justo las que después
+    // mira computeDiff (descarta todo lo que terminó antes de hoy).
     const enriched = applyAirbnbNames(events, appRes);
     const googleEvents = enriched.filter((e) => e.source === "google");
     const airbnbEvents = enriched.filter((e) => e.source === "airbnb");

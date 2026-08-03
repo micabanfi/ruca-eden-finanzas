@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import CopyBtn from "@/components/CopyBtn";
 import { runCalendarDiff } from "@/actions/calendar";
 import type { Reservation } from "@/db/reservations";
-import { addDays, overlaps, type DiffResult } from "@/lib/ical";
+// OJO: desde un componente cliente hay que importar de `ical-core` (puro), NO de
+// `@/lib/ical`, que arrastra node-ical/node:fs y rompe la página en el browser.
+import { addDays, overlaps, type DiffResult } from "@/lib/ical-core";
 import { buildDatosAlquileres, ddmm } from "@/lib/mensajes";
 
 const input =
@@ -89,14 +91,24 @@ export default function DatosAlquileresPanel({
 
   function checkCalendar(force = false) {
     startTransition(async () => {
-      const r = await runCalendarDiff(force);
-      setChecked(true);
-      if (r.ok) {
-        setDiff(r.result);
-        setDiffErr(null);
-      } else {
+      // El try/catch NO es decorativo: si el server action falla de verdad (timeout
+      // de la función, red caída, 500), el await rechaza y React 19 propaga ese
+      // error al error boundary → se caía la pantalla entera en vez de mostrar el
+      // aviso. El chequeo de calendario es opcional: nunca debe tumbar la página.
+      try {
+        const r = await runCalendarDiff(force);
+        setChecked(true);
+        if (r.ok) {
+          setDiff(r.result);
+          setDiffErr(null);
+        } else {
+          setDiff(null);
+          setDiffErr(r.error);
+        }
+      } catch (e) {
+        setChecked(true);
         setDiff(null);
-        setDiffErr(r.error);
+        setDiffErr(e instanceof Error ? e.message : "No se pudo chequear el calendario");
       }
     });
   }
