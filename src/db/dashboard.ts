@@ -323,6 +323,38 @@ export interface MesTarifa {
 
 const MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 
+export interface MesSerie {
+  mes: string; // 'Ene', 'Feb', ...
+  ingresos: number;
+  egresos: number;
+  ganancia: number;
+}
+
+/** Ingresos / egresos / ganancia mes a mes de un año (barras). El equivalente
+ *  mensual de getSerieAnual: mismas fuentes (v_monthly_summary + la matriz) para
+ *  que los 12 meses sumen exactamente los KPIs del año. Los meses sin datos van
+ *  en 0 para que el eje X siempre muestre el año completo. */
+export async function getSerieMensual(year: number): Promise<MesSerie[]> {
+  const ing = await sql<{ m: string; usd: string | null }[]>`
+    SELECT right(mes,2) AS m, ROUND(SUM(ingresos_usd),2) AS usd
+    FROM v_monthly_summary WHERE left(mes,4) = ${String(year)} GROUP BY 1`;
+  const egr = await sql<{ m: string; usd: string | null }[]>`
+    SELECT right(mes,2) AS m, ROUND(SUM(usd),2) AS usd
+    FROM v_pagos_fijos_sheet WHERE left(mes,4) = ${String(year)} GROUP BY 1`;
+  const mI = new Map(ing.map((r) => [Number(r.m), Number(r.usd ?? 0)]));
+  const mE = new Map(egr.map((r) => [Number(r.m), Number(r.usd ?? 0)]));
+  return MESES.map((nombre, i) => {
+    const ingresos = mI.get(i + 1) ?? 0;
+    const egresos = mE.get(i + 1) ?? 0;
+    return {
+      mes: nombre,
+      ingresos,
+      egresos,
+      ganancia: Math.round((ingresos - egresos) * 100) / 100,
+    };
+  });
+}
+
 /** Tarifa promedio por mes de un año (line chart). */
 export async function getTarifaPorMes(year: number): Promise<MesTarifa[]> {
   const rows = await sql<{ m: string; t: string | null; n: string }[]>`

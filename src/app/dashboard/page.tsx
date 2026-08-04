@@ -11,6 +11,7 @@ import {
   getPorPlataforma,
   getProyeccionAnual,
   getSerieAnual,
+  getSerieMensual,
   getTarifaPorMes,
   getYears,
 } from "@/db/dashboard";
@@ -37,13 +38,14 @@ export default async function DashboardPage({
     readWithRetry(() => getPorPlataforma(year)),
   ]);
   const serieAnual = esGlobal ? await readWithRetry(() => getSerieAnual()) : null;
-  const [tarifaMes, temporadas] =
+  const [tarifaMes, temporadas, serieMensual] =
     year !== null
       ? await Promise.all([
           readWithRetry(() => getTarifaPorMes(year)),
           readWithRetry(() => getOcupacionTemporadas(year)),
+          readWithRetry(() => getSerieMensual(year)),
         ])
-      : [null, null];
+      : [null, null, null];
   // Proyección fin de año: solo tiene sentido para el año en curso (o futuro).
   const currentYear = new Date().getFullYear();
   const proyeccion =
@@ -63,6 +65,7 @@ export default async function DashboardPage({
         plataformas={plataformas}
         alcance={esGlobal ? "(global)" : String(year)}
         serieAnual={serieAnual}
+        serieMensual={serieMensual}
         tarifaMes={tarifaMes}
         temporadas={temporadas}
         proyeccion={proyeccion}

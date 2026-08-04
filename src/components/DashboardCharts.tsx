@@ -18,6 +18,7 @@ import {
 import type {
   CabinRow,
   KPIs,
+  MesSerie,
   MesTarifa,
   NamedAmount,
   PlatformRow,
@@ -63,6 +64,7 @@ export default function DashboardCharts({
   plataformas,
   alcance,
   serieAnual,
+  serieMensual,
   tarifaMes,
   temporadas,
   proyeccion,
@@ -75,6 +77,7 @@ export default function DashboardCharts({
   plataformas: PlatformRow[];
   alcance: string;
   serieAnual: YearSerie[] | null; // solo en global
+  serieMensual: MesSerie[] | null; // solo por año
   tarifaMes: MesTarifa[] | null; // solo por año
   temporadas: Temporada[] | null; // solo por año
   proyeccion: Proyeccion | null; // solo año en curso / futuro
@@ -135,6 +138,29 @@ export default function DashboardCharts({
             {proyeccion.reservas_futuras === 1 ? "" : "s"}
           </div>
         </div>
+      )}
+
+      {/* POR AÑO: barras mes a mes (ingresos/egresos/ganancia). A todo lo ancho y
+          primero de los gráficos: es la lectura principal del año. Equivale al
+          "Por año" del Global, pero con el detalle mensual. */}
+      {serieMensual && (
+        <Section
+          title={`Mes a mes ${alcance} — ingresos, egresos y ganancia`}
+          hint="Ingresos imputados al mes de check-in; egresos al mes al que corresponden (mes vencido). Los 12 meses suman los totales de arriba."
+        >
+          <ResponsiveContainer width="100%" height={320}>
+            <BarChart data={serieMensual} margin={{ left: 10, right: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+              <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
+              <Tooltip formatter={(v) => fmtUSD(Number(v))} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Bar dataKey="ingresos" name="Ingresos" fill="#15803d" />
+              <Bar dataKey="egresos" name="Egresos" fill="#dc2626" />
+              <Bar dataKey="ganancia" name="Ganancia" fill="#0e7490" />
+            </BarChart>
+          </ResponsiveContainer>
+        </Section>
       )}
 
       {/* GLOBAL: barras por año (ingresos/egresos/ganancia) + tarifa por año */}
