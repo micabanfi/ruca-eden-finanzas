@@ -1,15 +1,18 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   Legend,
   Line,
   LineChart,
   Pie,
   PieChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -24,6 +27,7 @@ import type {
   PlatformRow,
   Proyeccion,
   Temporada,
+  VarioRow,
   YearSerie,
 } from "@/db/dashboard";
 import { fmtUSD } from "@/lib/format";
@@ -55,12 +59,146 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 
 const usd0 = (n: number) => `USD$${Math.round(n).toLocaleString("es-AR")}`;
 
+/** Torta de Gastos Varios con desglose: al clickear una porción (o su leyenda)
+ *  se abre la lista de movimientos que la componen. Los totales de la torta se
+ *  agregan acá desde las MISMAS filas que muestra la tabla, así el desglose
+ *  siempre suma exactamente la porción. */
+function GastosVariosDrill({ rows }: { rows: VarioRow[] }) {
+  const [sel, setSel] = useState<string | null>(null);
+
+  const agg = useMemo(() => {
+    const m = new Map<string, { usd: number; n: number }>();
+    for (const r of rows) {
+      const a = m.get(r.grupo) ?? { usd: 0, n: 0 };
+      a.usd += r.usd;
+      a.n += 1;
+      m.set(r.grupo, a);
+    }
+    return [...m.entries()]
+      .map(([nombre, a]) => ({ nombre, usd: Math.round(a.usd * 100) / 100, n: a.n }))
+      .sort((x, y) => y.usd - x.usd);
+  }, [rows]);
+
+  // color estable por grupo: el mismo índice que usa la torta
+  const colorDe = (nombre: string) =>
+    PALETTE[Math.max(0, agg.findIndex((a) => a.nombre === nombre)) % PALETTE.length];
+
+  const detalle = useMemo(
+    () => (sel ? rows.filter((r) => r.grupo === sel).sort((a, b) => b.usd - a.usd) : []),
+    [rows, sel]
+  );
+  const totalSel = detalle.reduce((s, r) => s + r.usd, 0);
+  const toggle = (nombre: string | null) => setSel((prev) => (prev === nombre ? null : nombre));
+
+  return (
+    <>
+      <ResponsiveContainer width="100%" height={260}>
+        <PieChart>
+          <Pie
+            data={agg}
+            dataKey="usd"
+            nameKey="nombre"
+            cx="50%"
+            cy="45%"
+            outerRadius={80}
+            onClick={(_, index) => toggle(agg[index]?.nombre ?? null)}
+            className="cursor-pointer"
+          >
+            {agg.map((a, i) => (
+              <Cell
+                key={a.nombre}
+                fill={PALETTE[i % PALETTE.length]}
+                // la porción elegida se destaca; el resto se apaga
+                opacity={sel === null || sel === a.nombre ? 1 : 0.3}
+                stroke={sel === a.nombre ? "#111" : undefined}
+                strokeWidth={sel === a.nombre ? 2 : undefined}
+              />
+            ))}
+          </Pie>
+          <Tooltip formatter={(v) => fmtUSD(Number(v))} />
+          <Legend
+            wrapperStyle={{ fontSize: 11, cursor: "pointer" }}
+            onClick={(payload) => toggle(payload.value ?? null)}
+          />
+        </PieChart>
+      </ResponsiveContainer>
+
+      {sel === null ? (
+        <p className="text-center text-xs text-neutral-400">
+          Clickeá una porción para ver los movimientos que la componen.
+        </p>
+      ) : (
+        <div className="mt-1 rounded border border-neutral-200 bg-neutral-50 p-2">
+          <div className="mb-1 flex items-baseline justify-between gap-2">
+            <div className="flex items-baseline gap-2">
+              <span
+                className="inline-block h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: colorDe(sel) }}
+              />
+              <span className="text-xs font-semibold text-neutral-800">{sel}</span>
+              <span className="text-[10px] text-neutral-500">
+                {detalle.length} movimiento{detalle.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-xs font-semibold tabular-nums text-neutral-900">
+                {fmtUSD(totalSel)}
+              </span>
+              <button
+                type="button"
+                onClick={() => setSel(null)}
+                className="rounded border border-neutral-300 px-1.5 text-[10px] text-neutral-500 hover:bg-white"
+              >
+                cerrar
+              </button>
+            </div>
+          </div>
+          <div className="max-h-64 overflow-y-auto">
+            <table className="w-full border-collapse text-xs">
+              <thead className="sticky top-0 bg-neutral-50">
+                <tr className="border-b border-neutral-300 text-left text-neutral-500">
+                  <th className="py-1 font-normal">Fecha</th>
+                  <th className="py-1 font-normal">Descripción</th>
+                  <th className="py-1 text-right font-normal">Monto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {detalle.map((r) => (
+                  <tr key={r.id} className="border-b border-neutral-100 align-top">
+                    <td className="py-1 whitespace-nowrap tabular-nums text-neutral-500">
+                      {r.fecha}
+                    </td>
+                    <td className="py-1 pr-2 text-neutral-800">{r.descripcion}</td>
+                    <td className="py-1 text-right tabular-nums">{fmtUSD(r.usd)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-neutral-300 font-semibold">
+                  <td className="py-1" />
+                  <td className="py-1 text-right text-neutral-500">Total</td>
+                  <td className="py-1 text-right tabular-nums">{fmtUSD(totalSel)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <p className="mt-1 text-[10px] text-neutral-400">
+            Ordenado por monto. La clasificación es automática por palabras de la descripción:
+            si algo cayó en el grupo equivocado, se arregla ajustando la descripción en
+            Ingresos/Egresos.
+          </p>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function DashboardCharts({
   kpis,
   cabanas,
   metodos,
   gastosGrupo,
-  gastosVarios,
+  gastosVariosRows,
   plataformas,
   alcance,
   serieAnual,
@@ -73,7 +211,7 @@ export default function DashboardCharts({
   cabanas: CabinRow[];
   metodos: NamedAmount[];
   gastosGrupo: NamedAmount[];
-  gastosVarios: NamedAmount[];
+  gastosVariosRows: VarioRow[];
   plataformas: PlatformRow[];
   alcance: string;
   serieAnual: YearSerie[] | null; // solo en global
@@ -94,6 +232,39 @@ export default function DashboardCharts({
         <Legend wrapperStyle={{ fontSize: 11 }} />
       </PieChart>
     </ResponsiveContainer>
+  );
+
+  /** Barras horizontales ordenadas, con el monto al lado. Para series donde una
+   *  categoría aplasta al resto (Gastos Varios es ~78% del total) y una torta
+   *  dejaría las chicas invisibles. */
+  const barrasH = (data: NamedAmount[]) => (
+    <ResponsiveContainer width="100%" height={Math.max(220, data.length * 30 + 30)}>
+      <BarChart data={data} layout="vertical" margin={{ left: 4, right: 74, top: 4, bottom: 4 }}>
+        <XAxis
+          type="number"
+          tick={{ fontSize: 10 }}
+          tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`}
+        />
+        <YAxis type="category" dataKey="nombre" tick={{ fontSize: 11 }} width={96} />
+        <Tooltip formatter={(v) => fmtUSD(Number(v))} />
+        <Bar dataKey="usd" name="Gastos" fill="#b45309" radius={[0, 3, 3, 0]}>
+          <LabelList
+            dataKey="usd"
+            position="right"
+            formatter={(v) => usd0(Number(v))}
+            style={{ fontSize: 10, fill: "#525252" }}
+          />
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+
+  /** Mes a mes divergente: los egresos se dibujan hacia abajo invirtiéndoles el
+   *  signo SOLO para el gráfico (en la base y en los KPIs siguen positivos).
+   *  La ganancia queda al final y va sola para arriba o para abajo según el mes. */
+  const mensualDiv = useMemo(
+    () => (serieMensual ?? []).map((m) => ({ ...m, egresos: -m.egresos })),
+    [serieMensual]
   );
 
   return (
@@ -146,15 +317,25 @@ export default function DashboardCharts({
       {serieMensual && (
         <Section
           title={`Mes a mes ${alcance} — ingresos, egresos y ganancia`}
-          hint="Ingresos imputados al mes de check-in; egresos al mes al que corresponden (mes vencido). Los 12 meses suman los totales de arriba."
+          hint="Ingresos en verde hacia arriba, egresos en rojo hacia abajo, y la ganancia del mes al final: arriba si ganaste, abajo si perdiste. Ingresos imputados al mes de check-in; egresos al mes al que corresponden (mes vencido). Los 12 meses suman los totales de arriba."
         >
-          <ResponsiveContainer width="100%" height={320}>
-            <BarChart data={serieMensual} margin={{ left: 10, right: 10 }}>
+          <ResponsiveContainer width="100%" height={340}>
+            <BarChart data={mensualDiv} margin={{ left: 10, right: 10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
               <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
-              <Tooltip formatter={(v) => fmtUSD(Number(v))} />
+              <YAxis
+                tick={{ fontSize: 11 }}
+                // valor absoluto: abajo del cero el rojo ya dice que son egresos
+                tickFormatter={(v) => `${Math.round(Math.abs(Number(v)) / 1000)}k`}
+              />
+              <Tooltip
+                formatter={(v, name) => [
+                  fmtUSD(name === "Egresos" ? Math.abs(Number(v)) : Number(v)),
+                  name,
+                ]}
+              />
               <Legend wrapperStyle={{ fontSize: 12 }} />
+              <ReferenceLine y={0} stroke="#9ca3af" />
               <Bar dataKey="ingresos" name="Ingresos" fill="#15803d" />
               <Bar dataKey="egresos" name="Egresos" fill="#dc2626" />
               <Bar dataKey="ganancia" name="Ganancia" fill="#0e7490" />
@@ -334,20 +515,26 @@ export default function DashboardCharts({
         </Section>
 
         {/* Gastos por grupo */}
-        <Section title="Gastos por grupo" hint="Servicios e impuestos · Sueldos y limpieza · Arreglos/Gastos Varios.">
-          {pie(gastosGrupo)}
+        <Section
+          title="Gastos por grupo"
+          hint="Todas las categorías de Ingresos/Egresos, con las variantes de un mismo servicio sumadas: Luz = CEB + Ruca; Gas = Gas + Ruca + Ruqui + Casero; Agua = Agua + Casero; Sueldos = Casero + Natalia; Limpieza = Casera + Juana + Costo IN/OUT."
+        >
+          {barrasH(gastosGrupo)}
         </Section>
 
-        {/* Gastos Varios desglosado */}
+        {/* Gastos Varios desglosado — con desglose al clickear */}
         <Section
           title="Gastos Varios — desglose"
-          hint="Clasificado automáticamente por la descripción (aproximado)."
+          hint="Clasificado automáticamente por la descripción (aproximado). Clickeá una porción para ver fecha, descripción y total de los movimientos que la componen."
         >
-          {pie(gastosVarios)}
+          <GastosVariosDrill rows={gastosVariosRows} />
         </Section>
 
         {/* Métodos de pago */}
-        <Section title="Ingresos por método de pago" hint="Dónde entró la plata de los alquileres.">
+        <Section
+          title="Ingresos por método de pago"
+          hint="Sale de transactions.payment_method, que es texto libre escrito a mano (35 variantes), así que la separación es aproximada. Efectivo / USD incluye los movimientos que solo dicen un nombre (Carlos, aline, Mica, nati)."
+        >
           {pie(metodos)}
         </Section>
       </div>

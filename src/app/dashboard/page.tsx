@@ -3,7 +3,7 @@ import DashboardYearTabs from "@/components/DashboardYearTabs";
 import { readWithRetry } from "@/lib/db";
 import {
   getGastosPorGrupo,
-  getGastosVariosDetalle,
+  getGastosVariosRows,
   getKPIs,
   getMetodosPago,
   getOcupacionTemporadas,
@@ -29,12 +29,12 @@ export default async function DashboardPage({
   const esGlobal = params.year === "global";
   const year = esGlobal ? null : Number(params.year) || new Date().getFullYear();
 
-  const [kpis, cabanas, metodos, gastosGrupo, gastosVarios, plataformas] = await Promise.all([
+  const [kpis, cabanas, metodos, gastosGrupo, gastosVariosRows, plataformas] = await Promise.all([
     readWithRetry(() => getKPIs(year)),
     readWithRetry(() => getPorCabana(year)),
     readWithRetry(() => getMetodosPago(year)),
     readWithRetry(() => getGastosPorGrupo(year)),
-    readWithRetry(() => getGastosVariosDetalle(year)),
+    readWithRetry(() => getGastosVariosRows(year)),
     readWithRetry(() => getPorPlataforma(year)),
   ]);
   const serieAnual = esGlobal ? await readWithRetry(() => getSerieAnual()) : null;
@@ -61,7 +61,7 @@ export default async function DashboardPage({
         cabanas={cabanas}
         metodos={metodos}
         gastosGrupo={gastosGrupo}
-        gastosVarios={gastosVarios}
+        gastosVariosRows={gastosVariosRows}
         plataformas={plataformas}
         alcance={esGlobal ? "(global)" : String(year)}
         serieAnual={serieAnual}

@@ -199,13 +199,32 @@ export interface NamedAmount {
   n: number;
 }
 
-// Métodos de pago de INGRESOS agrupados en ~6 grupos
+// Métodos de pago de INGRESOS.
+//
+// OJO con la calidad del dato (verificado 2026-08-05): `payment_method` es texto
+// libre escrito a mano — 35 valores distintos con variantes y typos ("Cash Male"
+// / "cash male" / "Cash male/laprida", "Mica Santander" / "mica banco"). No hay
+// campo limpio alternativo: `currency` es 'USD' en los 194 ingresos (todo se
+// guarda normalizado a dólares) y `holder` está vacío en el 91%. Así que la
+// separación transferencia/efectivo se deduce del texto y es aproximada.
+//
+// El orden de los WHEN importa: "cash nati/y 100usd transferidos" es mayormente
+// efectivo, así que efectivo se evalúa ANTES que transferencia.
+//
+// Decisión de Mimi (2026-08-05): los ~73.600 USD cuyo payment_method es solo un
+// nombre ("Carlos", "aline", "Mica", "nati" — el 37% de los ingresos) cuentan
+// como Efectivo / USD, o sea que caen en el ELSE. El dato no lo dice; es una
+// asunción deliberada para que la torta quede legible.
 export async function getMetodosPago(year: number | null): Promise<NamedAmount[]> {
   const { desde, hasta } = bounds(year);
   const rows = await sql<{ grupo: string; usd: string; n: string }[]>`
     SELECT CASE
-             WHEN payment_method ILIKE '%paypal%' OR payment_method ILIKE '%airbnb%' THEN 'PayPal / Airbnb'
-             ELSE 'Transferencia / USD'
+             WHEN payment_method IS NULL OR btrim(payment_method) = '' THEN 'Sin dato'
+             WHEN payment_method ~* 'paypal|airbnb' THEN 'PayPal / Airbnb'
+             WHEN payment_method ~* 'cash|efectivo|financiera|western|usd' THEN 'Efectivo / USD'
+             WHEN payment_method ~* 'santander|banco|galicia|mercado ?pago|transferen|transferid|(^|[^a-z])mp([^a-z]|$)'
+               THEN 'Transferencia'
+             ELSE 'Efectivo / USD'
            END AS grupo,
            ROUND(SUM(amount_usd),2) AS usd, COUNT(*) AS n
     FROM transactions
@@ -214,18 +233,32 @@ export async function getMetodosPago(year: number | null): Promise<NamedAmount[]
   return rows.map((r) => ({ nombre: r.grupo, usd: Number(r.usd), n: Number(r.n) }));
 }
 
-// Gastos agrupados en Servicios / Sueldos y limpieza / Gastos Varios
+// Gastos por grupo: todas las categorías del select de Ingresos/Egresos, con las
+// variantes de un mismo servicio unificadas (Mimi 2026-08-05: "luz(todo) /
+// gas(todo) / internet / agua / impuestos / vep / sueldos").
+//   Luz      <- Luz CEB, Luz Ruca
+//   Gas      <- Gas, Gas Ruca, Gas Ruqui, Gas Casero
+//   Agua     <- Agua, Agua Casero
+//   Sueldos  <- Sueldo Casero, Sueldo Natalia
+//   Limpieza <- Limpieza Casera, Limpieza Juana, Costo IN/OUT
+// Internet, Impuestos, VEP, Gastos Varios y Ajuste quedan solos.
+// Se dibuja con barras horizontales, no torta: Gastos Varios es ~78% del total,
+// así que en una torta el resto quedaba invisible.
 export async function getGastosPorGrupo(year: number | null): Promise<NamedAmount[]> {
   const { desde, hasta } = bounds(year);
   const rows = await sql<{ grupo: string; usd: string; n: string }[]>`
     SELECT CASE
-             WHEN category IN ('Agua','Agua Casero','Luz CEB','Luz Ruca','Gas','Gas Ruca',
-                  'Gas Ruqui','Gas Casero','Internet','Impuestos','VEP') THEN 'Servicios e impuestos'
-             WHEN category IN ('Sueldo Casero','Sueldo Natalia','Limpieza Casera',
-                  'Limpieza Juana','Costo IN/OUT') THEN 'Sueldos y limpieza'
-             WHEN category = 'Gastos Varios' THEN 'Arreglos / Gastos Varios'
+             WHEN category IN ('Luz CEB','Luz Ruca')                        THEN 'Luz'
+             WHEN category IN ('Gas','Gas Ruca','Gas Ruqui','Gas Casero')   THEN 'Gas'
+             WHEN category IN ('Agua','Agua Casero')                        THEN 'Agua'
+             WHEN category IN ('Sueldo Casero','Sueldo Natalia')            THEN 'Sueldos'
+             WHEN category IN ('Limpieza Casera','Limpieza Juana','Costo IN/OUT') THEN 'Limpieza'
+             WHEN category = 'Internet'      THEN 'Internet'
+             WHEN category = 'Impuestos'     THEN 'Impuestos'
+             WHEN category = 'VEP'           THEN 'VEP'
+             WHEN category = 'Gastos Varios' THEN 'Gastos Varios'
              -- grupo propio para que un Ajuste no se esconda dentro de "Otros"
-             WHEN category = 'Ajuste' THEN 'Ajustes'
+             WHEN category = 'Ajuste'        THEN 'Ajuste'
              ELSE 'Otros'
            END AS grupo,
            ROUND(SUM(amount_usd),2) AS usd, COUNT(*) AS n
@@ -236,11 +269,32 @@ export async function getGastosPorGrupo(year: number | null): Promise<NamedAmoun
   return rows.map((r) => ({ nombre: r.grupo, usd: Number(r.usd), n: Number(r.n) }));
 }
 
-// Subdivisión de Gastos Varios por palabras clave (aproximado)
-export async function getGastosVariosDetalle(year: number | null): Promise<NamedAmount[]> {
+export interface VarioRow {
+  id: number;
+  fecha: string; // YYYY-MM-DD
+  descripcion: string;
+  usd: number;
+  grupo: string;
+}
+
+// Subdivisión de Gastos Varios por palabras clave (aproximado).
+//
+// Devuelve las FILAS, no los totales: la torta se agrega en el cliente a partir
+// de esto (ver DashboardCharts). Así el desglose que se abre al clickear una
+// porción sale exactamente de las mismas filas que la porción — no hay dos
+// clasificaciones que se puedan desincronizar.
+export async function getGastosVariosRows(year: number | null): Promise<VarioRow[]> {
   const { desde, hasta } = bounds(year);
-  const rows = await sql<{ grupo: string; usd: string; n: string }[]>`
-    SELECT CASE
+  const rows = await sql<
+    { id: string; fecha: string; descripcion: string | null; usd: string; grupo: string }[]
+  >`
+    SELECT id, date::text AS fecha, description AS descripcion,
+           -- SIN redondear: la torta se agrega sumando estas filas en el cliente,
+           -- y 790 de las 846 tienen más de 2 decimales. Redondeando acá, la suma
+           -- de las porciones quedaba 13 centavos abajo del total de "Gastos
+           -- Varios" en el gráfico de al lado. Se redondea al mostrar (fmtUSD).
+           amount_usd AS usd,
+           CASE
              WHEN description ~* 'lavander|lavadero|ropa blanca|sabanas? lav|lavado' THEN 'Lavandería'
              WHEN description ~* 'juicio|abogad|indemniz|acuerdo|walter|legal|laboral' THEN 'Legal / juicios'
              WHEN description ~* 'cerco|porton|tech|material|palm|construc|pintur|pared|garage|raul|ventana|albañil|obra|pablo|cemento|losa|escalera' THEN 'Obras y mejoras'
@@ -248,13 +302,18 @@ export async function getGastosVariosDetalle(year: number | null): Promise<Named
              WHEN description ~* 'arreglo|reparac|plomer|service|manten|jardin|poda|desmaleza|electricista|gasista|destap' THEN 'Mantenimiento'
              WHEN description ~* 'seguro|contad|gestor|comision|banc|fee' THEN 'Administrativos'
              ELSE 'Otros varios'
-           END AS grupo,
-           ROUND(SUM(amount_usd),2) AS usd, COUNT(*) AS n
+           END AS grupo
     FROM transactions
     WHERE kind='egreso' AND category='Gastos Varios' AND amount_usd IS NOT NULL
       AND date >= ${desde} AND date < ${hasta}
-    GROUP BY 1 ORDER BY 2 DESC`;
-  return rows.map((r) => ({ nombre: r.grupo, usd: Number(r.usd), n: Number(r.n) }));
+    ORDER BY date DESC, id DESC`;
+  return rows.map((r) => ({
+    id: Number(r.id),
+    fecha: r.fecha,
+    descripcion: r.descripcion ?? "(sin descripción)",
+    usd: Number(r.usd),
+    grupo: r.grupo,
+  }));
 }
 
 export interface PlatformRow {
