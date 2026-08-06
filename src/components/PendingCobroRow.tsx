@@ -199,7 +199,7 @@ export default function PendingCobroRow({ p }: { p: PendingCobro }) {
                   </label>
                 </>
               )}
-              <PaymentMethodField inputClass={input} defaultValue={esAirbnb ? "Paypal" : ""} />
+              <PaymentMethodField inputClass={input} defaultValue={esAirbnb ? "Paypal" : ""} required />
               <label className="flex grow flex-col">
                 Nota
                 <input type="text" name="notes" placeholder="ej: me dió $300mil, resto transferido…"

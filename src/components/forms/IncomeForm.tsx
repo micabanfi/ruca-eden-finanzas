@@ -51,7 +51,7 @@ export default function IncomeForm() {
         <input type="text" name="description" className={`${input} w-44`} placeholder="inquilino" />
       </label>
       <CurrencyAmount inputClass={input} label="Precio" required />
-      <PaymentMethodField inputClass={input} />
+      <PaymentMethodField inputClass={input} required />
       <label className="flex flex-col text-xs">
         Lo tiene
         <select name="holder" defaultValue="" className={input}>
