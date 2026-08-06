@@ -222,7 +222,12 @@ export async function getMetodosPago(year: number | null): Promise<NamedAmount[]
              WHEN payment_method IS NULL OR btrim(payment_method) = '' THEN 'Sin dato'
              WHEN payment_method ~* 'paypal|airbnb' THEN 'PayPal / Airbnb'
              WHEN payment_method ~* 'cash|efectivo|financiera|western|usd' THEN 'Efectivo / USD'
-             WHEN payment_method ~* 'santander|banco|galicia|mercado ?pago|transferen|transferid|(^|[^a-z])mp([^a-z]|$)'
+             -- 'alquileres' = la cuenta DÉBITO del Santander (ver catalog.ts), o sea
+             -- transferencia. Es el nombre canónico de lo que en el texto libre
+             -- aparece como "micaela santander" / "Mica Santander" (Mimi 2026-08-05:
+             -- "micaela santander es lo mismo que alquileres, o sea santander débito").
+             -- Sin esto caía en el ELSE = Efectivo / USD, que es justo lo contrario.
+             WHEN payment_method ~* 'santander|banco|galicia|alquileres|mercado ?pago|transferen|transferid|(^|[^a-z])mp([^a-z]|$)'
                THEN 'Transferencia'
              ELSE 'Efectivo / USD'
            END AS grupo,
@@ -233,6 +238,16 @@ export async function getMetodosPago(year: number | null): Promise<NamedAmount[]
   return rows.map((r) => ({ nombre: r.grupo, usd: Number(r.usd), n: Number(r.n) }));
 }
 
+// Lavandería se detecta por la descripción, no por categoría: en la base cae
+// dentro de category='Gastos Varios'. La regex vive acá, en una sola constante,
+// porque la usan DOS gráficos (Gastos por grupo y el desglose de Gastos Varios)
+// y si se desincronizan los totales dejan de cerrar entre sí.
+// Se interpola como parámetro (`description ~* ${RE}`), no como SQL crudo.
+const RE_LAVANDERIA = "lavander|lavadero|ropa blanca|sabanas? lav|lavado";
+// Excepciones: cosas físicas PARA el lavadero que no son gasto de lavandería.
+// "vidrio ruqui lavadero" es un vidrio, no un lavado (Mimi, 2026-08-05).
+const RE_LAVANDERIA_EXCEPCIONES = "vidrio";
+
 // Gastos por grupo: todas las categorías del select de Ingresos/Egresos, con las
 // variantes de un mismo servicio unificadas (Mimi 2026-08-05: "luz(todo) /
 // gas(todo) / internet / agua / impuestos / vep / sueldos").
@@ -242,6 +257,10 @@ export async function getMetodosPago(year: number | null): Promise<NamedAmount[]
 //   Sueldos  <- Sueldo Casero, Sueldo Natalia
 //   Limpieza <- Limpieza Casera, Limpieza Juana, Costo IN/OUT
 // Internet, Impuestos, VEP, Gastos Varios y Ajuste quedan solos.
+// Lavandería sale de adentro de Gastos Varios y va como grupo propio: es un
+// gasto grande y recurrente (USD 5.349 solo en 2026) que no se veía (Mimi,
+// 2026-08-05). Por eso la barra "Gastos Varios" acá EXCLUYE lavandería, y
+// "Gastos Varios" + "Lavandería" = el total de la torta de desglose.
 // Se dibuja con barras horizontales, no torta: Gastos Varios es ~78% del total,
 // así que en una torta el resto quedaba invisible.
 export async function getGastosPorGrupo(year: number | null): Promise<NamedAmount[]> {
@@ -256,6 +275,10 @@ export async function getGastosPorGrupo(year: number | null): Promise<NamedAmoun
              WHEN category = 'Internet'      THEN 'Internet'
              WHEN category = 'Impuestos'     THEN 'Impuestos'
              WHEN category = 'VEP'           THEN 'VEP'
+             -- lavandería antes que el Gastos Varios genérico, si no nunca entra
+             WHEN category = 'Gastos Varios'
+                  AND description ~* ${RE_LAVANDERIA}
+                  AND description !~* ${RE_LAVANDERIA_EXCEPCIONES} THEN 'Lavandería'
              WHEN category = 'Gastos Varios' THEN 'Gastos Varios'
              -- grupo propio para que un Ajuste no se esconda dentro de "Otros"
              WHEN category = 'Ajuste'        THEN 'Ajuste'
@@ -295,9 +318,13 @@ export async function getGastosVariosRows(year: number | null): Promise<VarioRow
            -- Varios" en el gráfico de al lado. Se redondea al mostrar (fmtUSD).
            amount_usd AS usd,
            CASE
-             WHEN description ~* 'lavander|lavadero|ropa blanca|sabanas? lav|lavado' THEN 'Lavandería'
+             WHEN description ~* ${RE_LAVANDERIA}
+                  AND description !~* ${RE_LAVANDERIA_EXCEPCIONES} THEN 'Lavandería'
              WHEN description ~* 'juicio|abogad|indemniz|acuerdo|walter|legal|laboral' THEN 'Legal / juicios'
-             WHEN description ~* 'cerco|porton|tech|material|palm|construc|pintur|pared|garage|raul|ventana|albañil|obra|pablo|cemento|losa|escalera' THEN 'Obras y mejoras'
+             -- 'radiador' agregado 2026-08-05: los 4 movimientos de radiadores de
+             -- ruqui (mario 981 + morales 105/93/19) caían en "Otros varios",
+             -- separados de las otras 3 filas del mismo trabajo.
+             WHEN description ~* 'cerco|porton|tech|material|palm|construc|pintur|pared|garage|raul|ventana|albañil|obra|pablo|cemento|losa|escalera|radiador' THEN 'Obras y mejoras'
              WHEN description ~* 'salamandra|alarma|helad|colch|sommier|mueble|sabana|toalla|griferia|electro| tv|lavarrop|cocina|calef|aire|termotanque|vajilla|deco|sillon|cama' THEN 'Muebles y equipamiento'
              WHEN description ~* 'arreglo|reparac|plomer|service|manten|jardin|poda|desmaleza|electricista|gasista|destap' THEN 'Mantenimiento'
              WHEN description ~* 'seguro|contad|gestor|comision|banc|fee' THEN 'Administrativos'

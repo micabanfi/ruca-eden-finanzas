@@ -517,7 +517,7 @@ export default function DashboardCharts({
         {/* Gastos por grupo */}
         <Section
           title="Gastos por grupo"
-          hint="Todas las categorías de Ingresos/Egresos, con las variantes de un mismo servicio sumadas: Luz = CEB + Ruca; Gas = Gas + Ruca + Ruqui + Casero; Agua = Agua + Casero; Sueldos = Casero + Natalia; Limpieza = Casera + Juana + Costo IN/OUT."
+          hint="Todas las categorías de Ingresos/Egresos, con las variantes de un mismo servicio sumadas: Luz = CEB + Ruca; Gas = Gas + Ruca + Ruqui + Casero; Agua = Agua + Casero; Sueldos = Casero + Natalia; Limpieza = Casera + Juana + Costo IN/OUT. Lavandería va como grupo propio aunque en la base esté dentro de Gastos Varios, así que acá la barra Gastos Varios la excluye: Gastos Varios + Lavandería = el total de la torta de desglose."
         >
           {barrasH(gastosGrupo)}
         </Section>
