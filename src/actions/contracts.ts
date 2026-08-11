@@ -1,6 +1,6 @@
 "use server";
 
-import { sql } from "@/lib/db";
+import { withWriteConn } from "@/lib/db";
 
 function isJotform(url: string): boolean {
   try {
@@ -19,14 +19,20 @@ export async function createContractLink(
   guest: string | null,
 ): Promise<{ ok: boolean; code?: string; error?: string }> {
   if (!isJotform(url)) return { ok: false, error: "La URL no es de JotForm" };
-  for (let i = 0; i < 5; i++) {
-    const code = genCode();
-    try {
-      await sql`INSERT INTO contract_links (code, url, guest) VALUES (${code}, ${url}, ${guest || null})`;
-      return { ok: true, code };
-    } catch {
-      // colisión de code (UNIQUE) → reintentar
-    }
+  try {
+    return await withWriteConn(async (db) => {
+      for (let i = 0; i < 5; i++) {
+        const code = genCode();
+        try {
+          await db`INSERT INTO contract_links (code, url, guest) VALUES (${code}, ${url}, ${guest || null})`;
+          return { ok: true, code };
+        } catch {
+          // colisión de code (UNIQUE) → reintentar con otro code
+        }
+      }
+      return { ok: false, error: "No se pudo generar el link, probá de nuevo" };
+    });
+  } catch {
+    return { ok: false, error: "No se pudo guardar el link, probá de nuevo" };
   }
-  return { ok: false, error: "No se pudo generar el link, probá de nuevo" };
 }

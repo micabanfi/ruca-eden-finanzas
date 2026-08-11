@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { sql } from "@/lib/db";
+import { writeAction } from "@/lib/db";
 import type { ActionResult } from "@/actions/transactions";
 
 function revalidate() {
@@ -33,30 +33,33 @@ export async function cobrarReserva(formData: FormData): Promise<ActionResult> {
   }
   if (lines.length === 0) return { ok: false, error: "Falta el monto" };
 
-  const [r] = await sql<{ guest_name: string | null; cabin: string | null }[]>`
-    SELECT guest_name, cabin FROM reservations WHERE id = ${reservationId}`;
-  if (!r) return { ok: false, error: "Reserva no encontrada" };
-
-  await sql.begin(async (tx) => {
-    for (const [idx, line] of lines.entries()) {
-      // En pesos: el monto cargado es ARS y el USD-equiv se calcula con el blue.
-      const amountUsd = currency === "ARS" ? line.amount / blueRate : line.amount;
-      const amountArs = currency === "ARS" ? line.amount : null;
-      await tx`
-        INSERT INTO transactions
-          (kind, date, description, amount_usd, amount_ars, blue_rate, currency,
-           holder, notes, cabin, payment_method_raw, payment_method,
-           reservation_id, source_sheet)
-        VALUES ('ingreso', ${date}, ${r.guest_name}, ${amountUsd}, ${amountArs},
-                ${currency === "ARS" ? blueRate : null}, ${currency}, ${line.holder},
-                ${idx === 0 && notes ? notes : null}, ${r.cabin},
-                ${paymentMethod || null}, ${paymentMethod || null},
-                ${reservationId}, 'app')`;
-    }
-    await tx`UPDATE reservations SET collected = 1 WHERE id = ${reservationId}`;
-    await tx`INSERT INTO res_cobradas (reservation_id) VALUES (${reservationId})
-             ON CONFLICT DO NOTHING`;
+  // la lectura va adentro de la conexión de escritura (ver withWriteConn)
+  const res = await writeAction(async (db) => {
+    const [r] = await db<{ guest_name: string | null; cabin: string | null }[]>`
+      SELECT guest_name, cabin FROM reservations WHERE id = ${reservationId}`;
+    if (!r) throw new Error("Reserva no encontrada");
+    await db.begin(async (tx) => {
+      for (const [idx, line] of lines.entries()) {
+        // En pesos: el monto cargado es ARS y el USD-equiv se calcula con el blue.
+        const amountUsd = currency === "ARS" ? line.amount / blueRate : line.amount;
+        const amountArs = currency === "ARS" ? line.amount : null;
+        await tx`
+          INSERT INTO transactions
+            (kind, date, description, amount_usd, amount_ars, blue_rate, currency,
+             holder, notes, cabin, payment_method_raw, payment_method,
+             reservation_id, source_sheet)
+          VALUES ('ingreso', ${date}, ${r.guest_name}, ${amountUsd}, ${amountArs},
+                  ${currency === "ARS" ? blueRate : null}, ${currency}, ${line.holder},
+                  ${idx === 0 && notes ? notes : null}, ${r.cabin},
+                  ${paymentMethod || null}, ${paymentMethod || null},
+                  ${reservationId}, 'app')`;
+      }
+      await tx`UPDATE reservations SET collected = 1 WHERE id = ${reservationId}`;
+      await tx`INSERT INTO res_cobradas (reservation_id) VALUES (${reservationId})
+               ON CONFLICT DO NOTHING`;
+    });
   });
+  if (!res.ok) return res;
   revalidate();
   return { ok: true };
 }
@@ -66,42 +69,51 @@ export async function vincularCobro(
   reservationId: string,
   txId: string,
 ): Promise<ActionResult> {
-  await sql.begin(async (tx) => {
-    const [t] = await tx<{ source_sheet: string; source_row: number | null }[]>`
-      UPDATE transactions SET reservation_id = ${reservationId}
-      WHERE id = ${txId} RETURNING source_sheet, source_row`;
-    if (!t) throw new Error("Ingreso no encontrado");
-    // los ingresos de la planilla se recargan en cada push: persistir el vínculo
-    if (t.source_sheet !== "app" && t.source_row !== null) {
-      await tx`
-        INSERT INTO tx_links (reservation_id, source_sheet, source_row)
-        VALUES (${reservationId}, ${t.source_sheet}, ${t.source_row})
-        ON CONFLICT (source_sheet, source_row)
-        DO UPDATE SET reservation_id = EXCLUDED.reservation_id`;
-    }
-    await tx`UPDATE reservations SET collected = 1 WHERE id = ${reservationId}`;
-    await tx`INSERT INTO res_cobradas (reservation_id) VALUES (${reservationId})
-             ON CONFLICT DO NOTHING`;
-  });
+  const res = await writeAction((db) =>
+    db.begin(async (tx) => {
+      const [t] = await tx<{ source_sheet: string; source_row: number | null }[]>`
+        UPDATE transactions SET reservation_id = ${reservationId}
+        WHERE id = ${txId} RETURNING source_sheet, source_row`;
+      if (!t) throw new Error("Ingreso no encontrado");
+      // los ingresos de la planilla se recargan en cada push: persistir el vínculo
+      if (t.source_sheet !== "app" && t.source_row !== null) {
+        await tx`
+          INSERT INTO tx_links (reservation_id, source_sheet, source_row)
+          VALUES (${reservationId}, ${t.source_sheet}, ${t.source_row})
+          ON CONFLICT (source_sheet, source_row)
+          DO UPDATE SET reservation_id = EXCLUDED.reservation_id`;
+      }
+      await tx`UPDATE reservations SET collected = 1 WHERE id = ${reservationId}`;
+      await tx`INSERT INTO res_cobradas (reservation_id) VALUES (${reservationId})
+               ON CONFLICT DO NOTHING`;
+    }),
+  );
+  if (!res.ok) return res;
   revalidate();
   return { ok: true };
 }
 
 /** Marcar cobrada sin crear ingreso (cuando ya estaba cargado de otra forma). */
 export async function marcarCobrada(reservationId: string): Promise<ActionResult> {
-  await sql.begin(async (tx) => {
-    await tx`UPDATE reservations SET collected = 1 WHERE id = ${reservationId}`;
-    await tx`INSERT INTO res_cobradas (reservation_id) VALUES (${reservationId})
-             ON CONFLICT DO NOTHING`;
-  });
+  const res = await writeAction((db) =>
+    db.begin(async (tx) => {
+      await tx`UPDATE reservations SET collected = 1 WHERE id = ${reservationId}`;
+      await tx`INSERT INTO res_cobradas (reservation_id) VALUES (${reservationId})
+               ON CONFLICT DO NOTHING`;
+    }),
+  );
+  if (!res.ok) return res;
   revalidate();
   return { ok: true };
 }
 
 /** Marcar una reserva como invitación: nunca se cobra, sale de pendientes. */
 export async function marcarInvitada(reservationId: string): Promise<ActionResult> {
-  await sql`INSERT INTO res_invitaciones (reservation_id) VALUES (${reservationId})
-            ON CONFLICT DO NOTHING`;
+  const res = await writeAction(
+    (db) => db`INSERT INTO res_invitaciones (reservation_id) VALUES (${reservationId})
+               ON CONFLICT DO NOTHING`,
+  );
+  if (!res.ok) return res;
   revalidatePath("/alquileres");
   revalidate();
   return { ok: true };
@@ -140,10 +152,13 @@ export async function addEntrega(formData: FormData): Promise<ActionResult> {
   const m = parseEntregaAmounts(formData);
   if (!m.ok) return m;
 
-  await sql`
-    INSERT INTO entregas (date, holder, amount_usd, amount_ars, currency, transaction_id, notes)
-    VALUES (${date}, ${holder}, ${m.amountUsd}, ${m.amountArs}, ${m.currency},
-            ${transactionId || null}, ${notes || null})`;
+  const res = await writeAction(
+    (db) => db`
+      INSERT INTO entregas (date, holder, amount_usd, amount_ars, currency, transaction_id, notes)
+      VALUES (${date}, ${holder}, ${m.amountUsd}, ${m.amountArs}, ${m.currency},
+              ${transactionId || null}, ${notes || null})`,
+  );
+  if (!res.ok) return res;
   revalidate();
   return { ok: true };
 }
@@ -160,11 +175,14 @@ export async function updateEntrega(formData: FormData): Promise<ActionResult> {
   const m = parseEntregaAmounts(formData);
   if (!m.ok) return m;
 
-  await sql`
-    UPDATE entregas
-    SET date = ${date}, holder = ${holder}, amount_usd = ${m.amountUsd},
-        amount_ars = ${m.amountArs}, currency = ${m.currency}, notes = ${notes || null}
-    WHERE id = ${id}`;
+  const res = await writeAction(
+    (db) => db`
+      UPDATE entregas
+      SET date = ${date}, holder = ${holder}, amount_usd = ${m.amountUsd},
+          amount_ars = ${m.amountArs}, currency = ${m.currency}, notes = ${notes || null}
+      WHERE id = ${id}`,
+  );
+  if (!res.ok) return res;
   revalidate();
   return { ok: true };
 }
@@ -172,7 +190,10 @@ export async function updateEntrega(formData: FormData): Promise<ActionResult> {
 /** Deshacer una entrega (soft-delete; nunca se borra la fila). Reversible. */
 export async function cancelEntrega(id: string): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Falta el id" };
-  await sql`UPDATE entregas SET cancelled_at = now() WHERE id = ${id}`;
+  const res = await writeAction(
+    (db) => db`UPDATE entregas SET cancelled_at = now() WHERE id = ${id}`,
+  );
+  if (!res.ok) return res;
   revalidate();
   return { ok: true };
 }
@@ -180,7 +201,10 @@ export async function cancelEntrega(id: string): Promise<ActionResult> {
 /** Restaurar una entrega previamente deshecha. */
 export async function restoreEntrega(id: string): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Falta el id" };
-  await sql`UPDATE entregas SET cancelled_at = NULL WHERE id = ${id}`;
+  const res = await writeAction(
+    (db) => db`UPDATE entregas SET cancelled_at = NULL WHERE id = ${id}`,
+  );
+  if (!res.ok) return res;
   revalidate();
   return { ok: true };
 }

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { sql } from "@/lib/db";
+import { writeAction } from "@/lib/db";
 import type { ActionResult } from "@/actions/transactions";
 
 function revalidate() {
@@ -18,22 +18,23 @@ export async function setSaldoInicial(formData: FormData): Promise<ActionResult>
   if (!Number.isFinite(ars) || !Number.isFinite(usd))
     return { ok: false, error: "Montos inválidos" };
 
-  await sql.begin(async (tx) => {
-    const [row] = await tx<{ id: string }[]>`
+  const res = await writeAction(async (db) => {
+    const [row] = await db<{ id: string }[]>`
       SELECT id FROM cuenta_movimientos
       WHERE account = 'Santander' AND kind = 'apertura' AND cancelled_at IS NULL
       ORDER BY id LIMIT 1`;
     if (row) {
-      await tx`
+      await db`
         UPDATE cuenta_movimientos
         SET date = ${date}, delta_ars = ${ars}, delta_usd = ${usd}
         WHERE id = ${row.id}`;
     } else {
-      await tx`
+      await db`
         INSERT INTO cuenta_movimientos (date, account, kind, delta_ars, delta_usd, description)
         VALUES (${date}, 'Santander', 'apertura', ${ars}, ${usd}, 'Saldo inicial')`;
     }
   });
+  if (!res.ok) return res;
   revalidate();
   return { ok: true };
 }
@@ -52,10 +53,13 @@ export async function addMovimiento(formData: FormData): Promise<ActionResult> {
   if (ars <= 0 && usd <= 0) return { ok: false, error: "Cargá un monto en pesos o USD" };
 
   const sign = kind === "egreso" ? -1 : 1;
-  await sql`
-    INSERT INTO cuenta_movimientos (date, account, kind, delta_ars, delta_usd, description)
-    VALUES (${date}, 'Santander', ${kind}, ${sign * ars}, ${sign * usd},
-            ${description || null})`;
+  const res = await writeAction(
+    (db) => db`
+      INSERT INTO cuenta_movimientos (date, account, kind, delta_ars, delta_usd, description)
+      VALUES (${date}, 'Santander', ${kind}, ${sign * ars}, ${sign * usd},
+              ${description || null})`,
+  );
+  if (!res.ok) return res;
   revalidate();
   return { ok: true };
 }
@@ -80,9 +84,12 @@ export async function registrarFx(formData: FormData): Promise<ActionResult> {
     dir === "venta"
       ? `Vendí USD$${usd} → $${ars}`
       : `Compré USD$${usd} pagando $${ars}`;
-  await sql`
-    INSERT INTO cuenta_movimientos (date, account, kind, delta_ars, delta_usd, description)
-    VALUES (${date}, 'Santander', 'fx', ${deltaArs}, ${deltaUsd}, ${desc})`;
+  const res = await writeAction(
+    (db) => db`
+      INSERT INTO cuenta_movimientos (date, account, kind, delta_ars, delta_usd, description)
+      VALUES (${date}, 'Santander', 'fx', ${deltaArs}, ${deltaUsd}, ${desc})`,
+  );
+  if (!res.ok) return res;
   revalidate();
   return { ok: true };
 }
@@ -90,14 +97,20 @@ export async function registrarFx(formData: FormData): Promise<ActionResult> {
 /** Soft-delete de un movimiento de la cuenta (nunca DELETE). Reversible. */
 export async function cancelarMovimiento(id: string): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Falta el id" };
-  await sql`UPDATE cuenta_movimientos SET cancelled_at = now() WHERE id = ${id}`;
+  const res = await writeAction(
+    (db) => db`UPDATE cuenta_movimientos SET cancelled_at = now() WHERE id = ${id}`,
+  );
+  if (!res.ok) return res;
   revalidate();
   return { ok: true };
 }
 
 export async function restaurarMovimiento(id: string): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Falta el id" };
-  await sql`UPDATE cuenta_movimientos SET cancelled_at = NULL WHERE id = ${id}`;
+  const res = await writeAction(
+    (db) => db`UPDATE cuenta_movimientos SET cancelled_at = NULL WHERE id = ${id}`,
+  );
+  if (!res.ok) return res;
   revalidate();
   return { ok: true };
 }

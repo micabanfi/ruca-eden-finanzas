@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { sql } from "@/lib/db";
+import { writeAction } from "@/lib/db";
 
 export interface ActionResult {
   ok: boolean;
@@ -31,13 +31,16 @@ export async function addEgreso(formData: FormData): Promise<ActionResult> {
   if (!category) return { ok: false, error: "Falta el tipo de pago" };
 
   const amountUsd = amountArs / blueRate;
-  await sql`
-    INSERT INTO transactions
-      (kind, date, description, amount_ars, amount_usd, blue_rate,
-       category_raw, category, payment_method_raw, payment_method, notes, source_sheet)
-    VALUES ('egreso', ${date}, ${description || null}, ${amountArs}, ${amountUsd},
-            ${blueRate}, ${category}, ${category}, ${paymentMethod || null},
-            ${paymentMethod || null}, ${notes || null}, 'app')`;
+  const res = await writeAction(
+    (db) => db`
+      INSERT INTO transactions
+        (kind, date, description, amount_ars, amount_usd, blue_rate,
+         category_raw, category, payment_method_raw, payment_method, notes, source_sheet)
+      VALUES ('egreso', ${date}, ${description || null}, ${amountArs}, ${amountUsd},
+              ${blueRate}, ${category}, ${category}, ${paymentMethod || null},
+              ${paymentMethod || null}, ${notes || null}, 'app')`,
+  );
+  if (!res.ok) return res;
   revalidate();
   return { ok: true };
 }
@@ -61,14 +64,20 @@ export async function updateTransaction(
 
   if (field === "date") {
     if (!TX_DATE_RE.test(v)) return { ok: false, error: "Fecha inválida" };
-    await sql`UPDATE transactions SET date = ${v} WHERE id = ${id}`;
+    const res = await writeAction(
+      (db) => db`UPDATE transactions SET date = ${v} WHERE id = ${id}`,
+    );
+    if (!res.ok) return res;
     revalidate();
     return { ok: true };
   }
 
   // quién tiene la plata de un ingreso (editable desde Ingresos Inquilinos)
   if (field === "holder") {
-    await sql`UPDATE transactions SET holder = ${v || null} WHERE id = ${id}`;
+    const res = await writeAction(
+      (db) => db`UPDATE transactions SET holder = ${v || null} WHERE id = ${id}`,
+    );
+    if (!res.ok) return res;
     revalidate();
     return { ok: true };
   }
@@ -78,32 +87,38 @@ export async function updateTransaction(
   if (field === "amount_usd") {
     const num = Number(v);
     if (!Number.isFinite(num) || num <= 0) return { ok: false, error: "Precio inválido" };
-    const [t] = await sql<{ currency: string | null; blue_rate: string | null }[]>`
-      SELECT currency, blue_rate FROM transactions WHERE id = ${id}`;
-    if (!t) return { ok: false, error: "Ingreso no encontrado" };
-    const blue = t.blue_rate === null ? null : Number(t.blue_rate);
-    if (t.currency === "ARS" && blue && blue > 0) {
-      await sql`UPDATE transactions SET amount_usd = ${num}, amount_ars = ${num * blue} WHERE id = ${id}`;
-    } else {
-      await sql`UPDATE transactions SET amount_usd = ${num} WHERE id = ${id}`;
-    }
+    const res = await writeAction(async (db) => {
+      const [t] = await db<{ currency: string | null; blue_rate: string | null }[]>`
+        SELECT currency, blue_rate FROM transactions WHERE id = ${id}`;
+      if (!t) throw new Error("Ingreso no encontrado");
+      const blue = t.blue_rate === null ? null : Number(t.blue_rate);
+      if (t.currency === "ARS" && blue && blue > 0) {
+        await db`UPDATE transactions SET amount_usd = ${num}, amount_ars = ${num * blue} WHERE id = ${id}`;
+      } else {
+        await db`UPDATE transactions SET amount_usd = ${num} WHERE id = ${id}`;
+      }
+    });
+    if (!res.ok) return res;
     revalidate();
     return { ok: true };
   }
 
   // texto libre: category y payment_method espejan su columna *_raw
   if (TX_TEXT_FIELDS.has(field)) {
-    if (field === "category") {
-      await sql`UPDATE transactions
-                SET category = ${v || null}, category_raw = ${v || null}
-                WHERE id = ${id}`;
-    } else if (field === "payment_method") {
-      await sql`UPDATE transactions
-                SET payment_method = ${v || null}, payment_method_raw = ${v || null}
-                WHERE id = ${id}`;
-    } else {
-      await sql`UPDATE transactions SET description = ${v || null} WHERE id = ${id}`;
-    }
+    const res = await writeAction((db) => {
+      if (field === "category") {
+        return db`UPDATE transactions
+                  SET category = ${v || null}, category_raw = ${v || null}
+                  WHERE id = ${id}`;
+      }
+      if (field === "payment_method") {
+        return db`UPDATE transactions
+                  SET payment_method = ${v || null}, payment_method_raw = ${v || null}
+                  WHERE id = ${id}`;
+      }
+      return db`UPDATE transactions SET description = ${v || null} WHERE id = ${id}`;
+    });
+    if (!res.ok) return res;
     revalidate();
     return { ok: true };
   }
@@ -113,16 +128,19 @@ export async function updateTransaction(
     const num = Number(v);
     if (!Number.isFinite(num) || num <= 0)
       return { ok: false, error: field === "amount_ars" ? "Precio inválido" : "Valor blue inválido" };
-    const [t] = await sql<{ amount_ars: string | null; blue_rate: string | null }[]>`
-      SELECT amount_ars, blue_rate FROM transactions WHERE id = ${id}`;
-    if (!t) return { ok: false, error: "Egreso no encontrado" };
-    const ars = field === "amount_ars" ? num : t.amount_ars === null ? null : Number(t.amount_ars);
-    const blue = field === "blue_rate" ? num : t.blue_rate === null ? null : Number(t.blue_rate);
-    const usd = ars !== null && blue && blue > 0 ? ars / blue : null;
-    await sql`
-      UPDATE transactions
-      SET amount_ars = ${ars}, blue_rate = ${blue}, amount_usd = ${usd}
-      WHERE id = ${id}`;
+    const res = await writeAction(async (db) => {
+      const [t] = await db<{ amount_ars: string | null; blue_rate: string | null }[]>`
+        SELECT amount_ars, blue_rate FROM transactions WHERE id = ${id}`;
+      if (!t) throw new Error("Egreso no encontrado");
+      const ars = field === "amount_ars" ? num : t.amount_ars === null ? null : Number(t.amount_ars);
+      const blue = field === "blue_rate" ? num : t.blue_rate === null ? null : Number(t.blue_rate);
+      const usd = ars !== null && blue && blue > 0 ? ars / blue : null;
+      await db`
+        UPDATE transactions
+        SET amount_ars = ${ars}, blue_rate = ${blue}, amount_usd = ${usd}
+        WHERE id = ${id}`;
+    });
+    if (!res.ok) return res;
     revalidate();
     return { ok: true };
   }
@@ -158,13 +176,16 @@ export async function addIngreso(formData: FormData): Promise<ActionResult> {
       return { ok: false, error: "Precio USD inválido" };
   }
 
-  await sql`
-    INSERT INTO transactions
-      (kind, date, description, amount_usd, amount_ars, blue_rate, currency,
-       payment_method_raw, payment_method, holder, notes, source_sheet)
-    VALUES ('ingreso', ${date}, ${description || null}, ${amountUsd}, ${amountArs},
-            ${blueRate}, ${currency}, ${paymentMethod || null}, ${paymentMethod || null},
-            ${holder || null}, ${notes || null}, 'app')`;
+  const res = await writeAction(
+    (db) => db`
+      INSERT INTO transactions
+        (kind, date, description, amount_usd, amount_ars, blue_rate, currency,
+         payment_method_raw, payment_method, holder, notes, source_sheet)
+      VALUES ('ingreso', ${date}, ${description || null}, ${amountUsd}, ${amountArs},
+              ${blueRate}, ${currency}, ${paymentMethod || null}, ${paymentMethod || null},
+              ${holder || null}, ${notes || null}, 'app')`,
+  );
+  if (!res.ok) return res;
   revalidate();
   return { ok: true };
 }

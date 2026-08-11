@@ -70,6 +70,16 @@ serverless, así que:
   esa cantidad, las queries sobrantes se encolan y el handoff de conexión contra
   el pooler de transacción se cuelga → timeout de `readWithRetry` → "A server
   error occurred" (bug 2026-07-02, cuando `max` era 5).
+- **Sockets zombies (bug 2026-08-10).** Entre requests Vercel *congela* la
+  instancia; el socket del pool sigue "abierto" para nosotros pero el pooler ya lo
+  reasignó. Al reusarlo, nuestros bytes caen en medio de otro stream y Postgres
+  contesta `invalid frontend message type 32` / `08P01` (FATAL) — o la query se
+  cuelga. Las **lecturas** lo sobreviven con `readWithRetry` (3 intentos, 10s+5s+5s).
+  Las **escrituras** no se pueden reintentar a ciegas (duplicarían la fila), así que
+  van por **`writeAction`/`withWriteConn`**, que abre una conexión nueva y exclusiva
+  por escritura: el handshake mismo prueba que está viva. `writeAction` además
+  traduce el error a `{ok:false, error}`, así el form lo muestra en vez de romper
+  la pantalla con el error boundary.
 
 ## Convenciones
 
@@ -78,9 +88,14 @@ serverless, así que:
 - **Números oficiales = vistas `v_`** (replican la planilla histórica). Para
   reportes usá `v_monthly_summary`, `v_pagos_fijos_sheet`, etc. en vez de re-sumar.
 - Ingresos imputados al **mes del check-in** cuando están vinculados a una reserva.
-- Escrituras: Server Action → `sql`/`sql.begin` → `revalidatePath(...)`. Ej:
-  cobrar inserta 1-2 `transactions` (seña/resto, cada una con su `holder`),
-  marca `collected=1` y registra en `res_cobradas`.
+- **Escrituras: Server Action → `writeAction((db) => ...)` → `revalidatePath(...)`.**
+  Nunca `sql`/`sql.begin` directo para INSERT/UPDATE (ver la sección de conexión:
+  el pool compartido tiene sockets zombies y una escritura no se puede reintentar
+  sin duplicar la fila). Patrón: `const res = await writeAction(...); if (!res.ok)
+  return res;` y recién ahí revalidar. Las lecturas que necesita la escritura van
+  adentro del mismo callback, sobre `db`. Ej: cobrar inserta 1-2 `transactions`
+  (seña/resto, cada una con su `holder`), marca `collected=1` y registra en
+  `res_cobradas`, todo en una `db.begin`.
 - Edición inline de reservas: doble-click en celda; los campos derivados
   (noches/total/restante) se recalculan como en la planilla
   (`updateReservation`).

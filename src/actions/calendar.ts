@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { readWithRetry, sql } from "@/lib/db";
+import { readWithRetry, writeAction } from "@/lib/db";
 import type { ActionResult } from "@/actions/transactions";
 import { getCalendarSources } from "@/db/calendar";
 import { getCurrentReservations } from "@/db/reservations";
@@ -32,23 +32,32 @@ export async function addCalendarSource(formData: FormData): Promise<ActionResul
   }
   const cabinVal = kind === "airbnb" ? cabin : null;
 
-  await sql`
-    INSERT INTO calendar_sources (kind, label, cabin, ics_url)
-    VALUES (${kind}, ${label || null}, ${cabinVal}, ${icsUrl})`;
+  const res = await writeAction(
+    (db) => db`
+      INSERT INTO calendar_sources (kind, label, cabin, ics_url)
+      VALUES (${kind}, ${label || null}, ${cabinVal}, ${icsUrl})`,
+  );
+  if (!res.ok) return res;
   revalidatePath("/calendario");
   return { ok: true };
 }
 
 export async function deactivateCalendarSource(id: string): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Falta el id" };
-  await sql`UPDATE calendar_sources SET active = false WHERE id = ${id}`;
+  const res = await writeAction(
+    (db) => db`UPDATE calendar_sources SET active = false WHERE id = ${id}`,
+  );
+  if (!res.ok) return res;
   revalidatePath("/calendario");
   return { ok: true };
 }
 
 export async function reactivateCalendarSource(id: string): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Falta el id" };
-  await sql`UPDATE calendar_sources SET active = true WHERE id = ${id}`;
+  const res = await writeAction(
+    (db) => db`UPDATE calendar_sources SET active = true WHERE id = ${id}`,
+  );
+  if (!res.ok) return res;
   revalidatePath("/calendario");
   return { ok: true };
 }

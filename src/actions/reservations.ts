@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { sql } from "@/lib/db";
+import { readWithRetry, sql, writeAction } from "@/lib/db";
 import type { ActionResult } from "@/actions/transactions";
 
 export async function addReservation(formData: FormData): Promise<ActionResult> {
@@ -40,25 +40,28 @@ export async function addReservation(formData: FormData): Promise<ActionResult> 
   const depUsd = depAmount !== null && depositCurrency !== "ARS" ? depAmount : null;
   const depArs = depAmount !== null && depositCurrency === "ARS" ? depAmount : null;
 
-  await sql.begin(async (tx) => {
-    const [row] = await tx<{ id: string }[]>`
-      INSERT INTO reservations
-        (checkin, checkout, guest_name, phone, cabin, platform, nights,
-         price_per_night, total_usd, deposit_usd, deposit_ars, deposit_account,
-         deposit_currency, balance_usd, payment_method, collected, notes)
-      VALUES (${checkin}, ${checkout}, ${guestName || null}, ${phone || null},
-              ${cabin}, ${platform || null}, ${nights}, ${pricePerNight},
-              ${total}, ${depUsd}, ${depArs}, ${depositAccount || null},
-              ${depositCurrency}, ${depUsd ? total - depUsd : null},
-              ${paymentMethod || null}, 0, 'creada en app')
-      RETURNING id`;
-    if (cabin !== "TODAS") {
-      await tx`
-        INSERT INTO reservation_nights (reservation_id, night, cabin, rate_usd)
-        SELECT ${row.id}, d::date, ${cabin}, ${total / nights}
-        FROM generate_series(${checkin}::date, ${checkout}::date - 1, '1 day') AS d`;
-    }
-  });
+  const res = await writeAction((db) =>
+    db.begin(async (tx) => {
+      const [row] = await tx<{ id: string }[]>`
+        INSERT INTO reservations
+          (checkin, checkout, guest_name, phone, cabin, platform, nights,
+           price_per_night, total_usd, deposit_usd, deposit_ars, deposit_account,
+           deposit_currency, balance_usd, payment_method, collected, notes)
+        VALUES (${checkin}, ${checkout}, ${guestName || null}, ${phone || null},
+                ${cabin}, ${platform || null}, ${nights}, ${pricePerNight},
+                ${total}, ${depUsd}, ${depArs}, ${depositAccount || null},
+                ${depositCurrency}, ${depUsd ? total - depUsd : null},
+                ${paymentMethod || null}, 0, 'creada en app')
+        RETURNING id`;
+      if (cabin !== "TODAS") {
+        await tx`
+          INSERT INTO reservation_nights (reservation_id, night, cabin, rate_usd)
+          SELECT ${row.id}, d::date, ${cabin}, ${total / nights}
+          FROM generate_series(${checkin}::date, ${checkout}::date - 1, '1 day') AS d`;
+      }
+    }),
+  );
+  if (!res.ok) return res;
 
   revalidatePath("/alquileres");
   revalidatePath("/ingresos-egresos"); // la seña en Santander cambia el saldo de la cuenta
@@ -93,25 +96,28 @@ export async function cancelReservation(
     charge && Number.isFinite(charge.amount) && charge.amount > 0 ? charge : null;
   if (charge && !cobro) return { ok: false, error: "Monto cobrado inválido" };
 
-  await sql.begin(async (tx) => {
-    await tx`UPDATE reservations SET cancelled_at = now() WHERE id = ${id}`;
-    await tx`DELETE FROM reservation_nights WHERE reservation_id = ${id}`;
+  const res = await writeAction((db) =>
+    db.begin(async (tx) => {
+      await tx`UPDATE reservations SET cancelled_at = now() WHERE id = ${id}`;
+      await tx`DELETE FROM reservation_nights WHERE reservation_id = ${id}`;
 
-    if (cobro) {
-      const [r] = await tx<{ guest_name: string | null; cabin: string | null }[]>`
-        SELECT guest_name, cabin FROM reservations WHERE id = ${id}`;
-      await tx`
-        INSERT INTO transactions
-          (kind, date, description, amount_usd, holder, notes, cabin,
-           payment_method_raw, payment_method, reservation_id, source_sheet)
-        VALUES ('ingreso', ${cobro.date}, ${r?.guest_name ?? null}, ${cobro.amount},
-                ${cobro.holder}, ${cobro.notes}, ${r?.cabin ?? null},
-                ${cobro.payment_method}, ${cobro.payment_method}, ${id}, 'app')`;
-      await tx`UPDATE reservations SET collected = 1 WHERE id = ${id}`;
-      await tx`INSERT INTO res_cobradas (reservation_id) VALUES (${id})
-               ON CONFLICT DO NOTHING`;
-    }
-  });
+      if (cobro) {
+        const [r] = await tx<{ guest_name: string | null; cabin: string | null }[]>`
+          SELECT guest_name, cabin FROM reservations WHERE id = ${id}`;
+        await tx`
+          INSERT INTO transactions
+            (kind, date, description, amount_usd, holder, notes, cabin,
+             payment_method_raw, payment_method, reservation_id, source_sheet)
+          VALUES ('ingreso', ${cobro.date}, ${r?.guest_name ?? null}, ${cobro.amount},
+                  ${cobro.holder}, ${cobro.notes}, ${r?.cabin ?? null},
+                  ${cobro.payment_method}, ${cobro.payment_method}, ${id}, 'app')`;
+        await tx`UPDATE reservations SET collected = 1 WHERE id = ${id}`;
+        await tx`INSERT INTO res_cobradas (reservation_id) VALUES (${id})
+                 ON CONFLICT DO NOTHING`;
+      }
+    }),
+  );
+  if (!res.ok) return res;
 
   revalidatePath("/alquileres");
   if (cobro) {
@@ -124,22 +130,25 @@ export async function cancelReservation(
 /** Reactivar una reserva cancelada: limpia `cancelled_at` y regenera las noches. */
 export async function restoreReservation(id: string): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Falta el id" };
-  await sql.begin(async (tx) => {
-    const [r] = await tx<
-      { checkin: string; checkout: string; cabin: string | null; total_usd: string | null; nights: number | null }[]
-    >`
-      UPDATE reservations SET cancelled_at = NULL WHERE id = ${id}
-      RETURNING to_char(checkin,'YYYY-MM-DD') AS checkin,
-                to_char(checkout,'YYYY-MM-DD') AS checkout, cabin, total_usd, nights`;
-    if (r && r.cabin && r.cabin !== "TODAS") {
-      const total = r.total_usd === null ? null : Number(r.total_usd);
-      await tx`
-        INSERT INTO reservation_nights (reservation_id, night, cabin, rate_usd)
-        SELECT ${id}, d::date, ${r.cabin},
-               ${total !== null && r.nights ? total / r.nights : null}
-        FROM generate_series(${r.checkin}::date, ${r.checkout}::date - 1, '1 day') AS d`;
-    }
-  });
+  const res = await writeAction((db) =>
+    db.begin(async (tx) => {
+      const [r] = await tx<
+        { checkin: string; checkout: string; cabin: string | null; total_usd: string | null; nights: number | null }[]
+      >`
+        UPDATE reservations SET cancelled_at = NULL WHERE id = ${id}
+        RETURNING to_char(checkin,'YYYY-MM-DD') AS checkin,
+                  to_char(checkout,'YYYY-MM-DD') AS checkout, cabin, total_usd, nights`;
+      if (r && r.cabin && r.cabin !== "TODAS") {
+        const total = r.total_usd === null ? null : Number(r.total_usd);
+        await tx`
+          INSERT INTO reservation_nights (reservation_id, night, cabin, rate_usd)
+          SELECT ${id}, d::date, ${r.cabin},
+                 ${total !== null && r.nights ? total / r.nights : null}
+          FROM generate_series(${r.checkin}::date, ${r.checkout}::date - 1, '1 day') AS d`;
+      }
+    }),
+  );
+  if (!res.ok) return res;
   revalidatePath("/alquileres");
   return { ok: true };
 }
@@ -175,7 +184,10 @@ export async function updateReservation(
 
   // free-text fields: direct single-column update
   if (TEXT_FIELDS.has(field)) {
-    await sql`UPDATE reservations SET ${sql(field)} = ${v || null} WHERE id = ${id}`;
+    const res = await writeAction(
+      (db) => db`UPDATE reservations SET ${db(field)} = ${v || null} WHERE id = ${id}`,
+    );
+    if (!res.ok) return res;
     revalidatePath("/alquileres");
     revalidatePath("/ingresos-egresos");
     return { ok: true };
@@ -184,24 +196,29 @@ export async function updateReservation(
   if (SIMPLE_NUM_FIELDS.has(field)) {
     const n = v === "" ? null : Number(v);
     if (n !== null && (!Number.isFinite(n) || n < 0)) return { ok: false, error: "Monto inválido" };
-    await sql`UPDATE reservations SET ${sql(field)} = ${n} WHERE id = ${id}`;
+    const res = await writeAction(
+      (db) => db`UPDATE reservations SET ${db(field)} = ${n} WHERE id = ${id}`,
+    );
+    if (!res.ok) return res;
     revalidatePath("/alquileres");
     revalidatePath("/ingresos-egresos");
     return { ok: true };
   }
   if (!RECOMPUTE_FIELDS.has(field)) return { ok: false, error: `Campo no editable: ${field}` };
 
-  const [r] = await sql<
-    {
-      checkin: string; checkout: string; cabin: string | null;
-      price_per_night: string | null; total_usd: string | null;
-      deposit_usd: string | null; balance_usd: string | null;
-    }[]
-  >`
-    SELECT to_char(checkin,'YYYY-MM-DD') AS checkin,
-           to_char(checkout,'YYYY-MM-DD') AS checkout,
-           cabin, price_per_night, total_usd, deposit_usd, balance_usd
-    FROM reservations WHERE id = ${id}`;
+  const [r] = await readWithRetry(
+    () => sql<
+      {
+        checkin: string; checkout: string; cabin: string | null;
+        price_per_night: string | null; total_usd: string | null;
+        deposit_usd: string | null; balance_usd: string | null;
+      }[]
+    >`
+      SELECT to_char(checkin,'YYYY-MM-DD') AS checkin,
+             to_char(checkout,'YYYY-MM-DD') AS checkout,
+             cabin, price_per_night, total_usd, deposit_usd, balance_usd
+      FROM reservations WHERE id = ${id}`,
+  );
   if (!r) return { ok: false, error: "Reserva no encontrada" };
 
   let checkin = r.checkin;
@@ -262,22 +279,25 @@ export async function updateReservation(
     bal = round2(total - (dep ?? 0));
   }
 
-  await sql.begin(async (tx) => {
-    await tx`
-      UPDATE reservations
-      SET checkin = ${checkin}, checkout = ${checkout}, nights = ${nights},
-          cabin = ${cabin}, price_per_night = ${ppn}, total_usd = ${total},
-          deposit_usd = ${dep}, balance_usd = ${bal}
-      WHERE id = ${id}`;
-    // regenerar las noches (alimentan alertas de solapamiento y ocupación)
-    await tx`DELETE FROM reservation_nights WHERE reservation_id = ${id}`;
-    if (cabin && cabin !== "TODAS") {
+  const res = await writeAction((db) =>
+    db.begin(async (tx) => {
       await tx`
-        INSERT INTO reservation_nights (reservation_id, night, cabin, rate_usd)
-        SELECT ${id}, d::date, ${cabin}, ${total !== null ? round2(total / nights) : null}
-        FROM generate_series(${checkin}::date, ${checkout}::date - 1, '1 day') AS d`;
-    }
-  });
+        UPDATE reservations
+        SET checkin = ${checkin}, checkout = ${checkout}, nights = ${nights},
+            cabin = ${cabin}, price_per_night = ${ppn}, total_usd = ${total},
+            deposit_usd = ${dep}, balance_usd = ${bal}
+        WHERE id = ${id}`;
+      // regenerar las noches (alimentan alertas de solapamiento y ocupación)
+      await tx`DELETE FROM reservation_nights WHERE reservation_id = ${id}`;
+      if (cabin && cabin !== "TODAS") {
+        await tx`
+          INSERT INTO reservation_nights (reservation_id, night, cabin, rate_usd)
+          SELECT ${id}, d::date, ${cabin}, ${total !== null ? round2(total / nights) : null}
+          FROM generate_series(${checkin}::date, ${checkout}::date - 1, '1 day') AS d`;
+      }
+    }),
+  );
+  if (!res.ok) return res;
 
   revalidatePath("/alquileres");
   revalidatePath("/ingresos-egresos"); // editar la seña USD impacta el saldo Santander
