@@ -159,15 +159,28 @@ export function buildDatosAlquileres(reservations: ResForDatos[], opts: DatosAlq
   return `${header}\n\n${bloques.join("\n\n")}`;
 }
 
-/** Datos para prellenar el contrato JotForm por URL (campos que completa Mimi). */
+/** Datos para prellenar el contrato JotForm por URL (campos que completa Mimi).
+ *
+ *  ⚠️ EL ORDEN DE LOS PARÁMETROS IMPORTA: `senia` DEBE ir antes que `precioTotal`.
+ *  En el form, el texto del contrato (campo 52) se arma con "replace tags"
+ *  ({precioTotal}, {senia}, {resto}…), cada uno una "calculation" que escribe en
+ *  ese mismo campo. JotForm tiene un anti-loop (`__antiLoopCache`) que guarda
+ *  SOLO el último valor escrito por result field: si dos calcs seguidas escriben
+ *  el MISMO valor en el campo 52, la segunda se descarta como "loop infinito".
+ *  Al prellenar `precioTotal` se recalcula `resto = precioTotal - senia`; si
+ *  `senia` todavía está vacía, `resto` == `precioTotal` → colisión y el tag
+ *  {precioTotal} queda VACÍO para siempre (no se vuelve a disparar). Mandando
+ *  `senia` primero, `resto` ya vale total-seña ≠ total y no colisiona.
+ *  (Caso residual: seña = 0 ⇒ resto == total siempre ⇒ el total sale vacío; por
+ *  eso el panel avisa. Bug diagnosticado 2026-08-20.) */
 export function buildJotformUrl(d: ReservaData): string {
   const nights = nightsBetween(d.checkin, d.checkout);
   const maxInquilinos = d.cabins.reduce((s, c) => s + (Number(c.pax) || 0), 0);
   const params = new URLSearchParams({
     cabania: d.cabins.map((c) => dispCabin(c.name)).join(", "),
     maxInquilinos: String(maxInquilinos),
-    precioTotal: String(Math.round(d.total)),
     senia: String(Math.round(d.senia)),
+    precioTotal: String(Math.round(d.total)),
     resto: String(Math.round(d.total - d.senia)),
     noches: String(nights),
     ...dateParts("fechaDesde", d.checkin),

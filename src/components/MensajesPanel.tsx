@@ -233,6 +233,14 @@ export default function MensajesPanel() {
             </button>
             {!ready && <span className="text-xs text-neutral-400">cargá cabaña, fechas y monto</span>}
           </div>
+          {/* Con seña 0 el contrato sale sin el total: JotForm descarta el tag
+              {precioTotal} porque coincide con {resto} (ver buildJotformUrl). */}
+          {ready && seniaNum <= 0 && (
+            <p className="text-xs text-amber-700">
+              ⚠ Con seña 0 el contrato sale sin el total en la cláusula TERCERA (limitación de
+              JotForm). Cargá una seña.
+            </p>
+          )}
           {linkErr && <p className="text-xs text-red-700">⚠ {linkErr}</p>}
           {shortUrl && (
             <div className="flex flex-wrap items-center gap-2 rounded bg-sky-50 p-2">
