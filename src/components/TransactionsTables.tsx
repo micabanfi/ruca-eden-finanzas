@@ -1,5 +1,6 @@
 import EditableTxCell from "@/components/EditableTxCell";
 import EntregaPopup from "@/components/EntregaPopup";
+import NotePopup from "@/components/NotePopup";
 import PendingCobroRow from "@/components/PendingCobroRow";
 import type { PendingCobro, Tx } from "@/db/transactions";
 import { HOLDERS, PAYMENT_METHODS } from "@/lib/catalog";
@@ -63,7 +64,7 @@ function IncomeGroupRows({ txs }: { txs: Tx[] }) {
   return txs.map((t, i) => (
     <tr
       key={t.id}
-      className={cancelado ? "bg-red-50 hover:bg-red-100" : "odd:bg-neutral-50 hover:bg-amber-50"}
+      className={`group ${cancelado ? "bg-red-50 hover:bg-red-100" : "odd:bg-neutral-50 hover:bg-amber-50"}`}
     >
       {i === 0 && (
         <>
@@ -72,9 +73,10 @@ function IncomeGroupRows({ txs }: { txs: Tx[] }) {
             {fmtDate(t.date)}
           </EditableTxCell>
           <EditableTxCell id={t.id} field="description" raw={t.description ?? ""}
-            rowSpan={txs.length} className={`${td} max-w-48 truncate font-medium`}>
-            {t.description}
-            {t.notes && <span title={t.notes}> 📝</span>}
+            rowSpan={txs.length} className={`${td} max-w-48 font-medium`}
+            after={<NotePopup kind="tx" id={t.id} notes={t.notes} label={t.description} />}>
+            {/* truncar el nombre en un span (no en la celda) para no recortar el 📝 */}
+            <span className="inline-block max-w-36 truncate align-bottom">{t.description}</span>
             {cancelado && (
               <span
                 className="ml-1 rounded bg-red-200 px-1.5 py-0.5 text-[10px] font-semibold text-red-900"
@@ -178,13 +180,13 @@ export default function TransactionsTables({
             </thead>
             <tbody>
               {egresos.map((t) => (
-                <tr key={t.id} className="odd:bg-neutral-50 hover:bg-amber-50">
+                <tr key={t.id} className="group odd:bg-neutral-50 hover:bg-amber-50">
                   <EditableTxCell id={t.id} field="date" type="date" raw={t.date} className={`${td} whitespace-nowrap`}>
                     {fmtDate(t.date)}
                   </EditableTxCell>
-                  <EditableTxCell id={t.id} field="description" raw={t.description ?? ""} className={`${td} max-w-64 truncate`}>
-                    {t.description}
-                    {t.notes && <span title={t.notes}> 📝</span>}
+                  <EditableTxCell id={t.id} field="description" raw={t.description ?? ""} className={`${td} max-w-64`}
+                    after={<NotePopup kind="tx" id={t.id} notes={t.notes} label={t.description} />}>
+                    <span className="inline-block max-w-52 truncate align-bottom">{t.description}</span>
                   </EditableTxCell>
                   <EditableTxCell id={t.id} field="amount_ars" type="number" raw={t.amount_ars ?? ""} className={`${td} text-right tabular-nums`}>
                     {fmtARS(t.amount_ars, 2)}

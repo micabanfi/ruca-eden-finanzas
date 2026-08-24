@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { cancelReservation, restoreReservation, updateReservation } from "@/actions/reservations";
 import type { CancelCharge } from "@/actions/reservations";
 import BlockingSpinner from "@/components/BlockingSpinner";
+import NotePopup from "@/components/NotePopup";
 import PaymentMethodField from "@/components/forms/PaymentMethodField";
 import type { BookingAlert, Reservation } from "@/db/reservations";
 import { CABINS, HOLDERS, PLATFORMS, PLATFORM_COLORS } from "@/lib/catalog";
@@ -18,6 +19,7 @@ function EditableCell({
   options,
   className,
   children,
+  after,
 }: {
   id: string;
   field: string;
@@ -26,6 +28,8 @@ function EditableCell({
   options?: string[];
   className: string;
   children: ReactNode;
+  /** contenido extra que NO entra en la edición (ej: el 📝 de nota) */
+  after?: ReactNode;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -86,6 +90,7 @@ function EditableCell({
       onDoubleClick={() => !pending && setEditing(true)}
     >
       {children}
+      {after}
       <BlockingSpinner show={pending} label="Guardando…" />
     </td>
   );
@@ -365,7 +370,7 @@ export default function ReservationsTable({
               <tr
                 key={r.id}
                 ref={i === firstFutureIdx ? todayRowRef : undefined}
-                className={`hover:bg-amber-50 ${
+                className={`group hover:bg-amber-50 ${
                   faltaSenia ? "bg-amber-100" : future ? "bg-sky-50" : "odd:bg-neutral-50"
                 }`}
               >
@@ -375,8 +380,15 @@ export default function ReservationsTable({
                 <EditableCell id={r.id} field="checkout" type="date" raw={r.checkout} className={td}>
                   {fmtDate(r.checkout)}
                 </EditableCell>
-                <EditableCell id={r.id} field="guest_name" raw={r.guest_name ?? ""} className={`${td} max-w-56 truncate font-medium`}>
-                  {r.guest_name}
+                <EditableCell
+                  id={r.id}
+                  field="guest_name"
+                  raw={r.guest_name ?? ""}
+                  className={`${td} max-w-56 font-medium`}
+                  after={<NotePopup kind="res" id={r.id} notes={r.notes} label={r.guest_name} />}
+                >
+                  {/* truncar el nombre en un span (no en la celda) para no recortar el 📝 */}
+                  <span className="inline-block max-w-44 truncate align-bottom">{r.guest_name}</span>
                 </EditableCell>
                 <EditableCell id={r.id} field="phone" raw={r.phone ?? ""} className={`${td} tabular-nums`}>
                   {r.phone}

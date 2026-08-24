@@ -46,12 +46,16 @@ export async function addReservation(formData: FormData): Promise<ActionResult> 
         INSERT INTO reservations
           (checkin, checkout, guest_name, phone, cabin, platform, nights,
            price_per_night, total_usd, deposit_usd, deposit_ars, deposit_account,
-           deposit_currency, balance_usd, payment_method, collected, notes)
+           deposit_currency, balance_usd, payment_method, collected,
+           -- notes arranca vacío: es la nota libre de Mimi (el "por qué" de la
+           -- reserva), no metadata. La procedencia ya la marca source_row (NULL
+           -- = creada en la app, no importada de la planilla).
+           notes)
         VALUES (${checkin}, ${checkout}, ${guestName || null}, ${phone || null},
                 ${cabin}, ${platform || null}, ${nights}, ${pricePerNight},
                 ${total}, ${depUsd}, ${depArs}, ${depositAccount || null},
                 ${depositCurrency}, ${depUsd ? total - depUsd : null},
-                ${paymentMethod || null}, 0, 'creada en app')
+                ${paymentMethod || null}, 0, NULL)
         RETURNING id`;
       if (cabin !== "TODAS") {
         await tx`
@@ -157,7 +161,7 @@ export async function restoreReservation(id: string): Promise<ActionResult> {
 
 const TEXT_FIELDS = new Set([
   "guest_name", "phone", "platform", "payment_method",
-  "deposit_account", "deposit_currency",
+  "deposit_account", "deposit_currency", "notes",
 ]);
 // numéricos que se guardan tal cual, sin recalcular total/restante (la seña en
 // pesos no toca el saldo USD de la reserva — son cuentas separadas).

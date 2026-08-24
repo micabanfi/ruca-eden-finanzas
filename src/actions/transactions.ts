@@ -47,7 +47,7 @@ export async function addEgreso(formData: FormData): Promise<ActionResult> {
 
 // --- inline cell editing (egresos) ------------------------------------------
 
-const TX_TEXT_FIELDS = new Set(["description", "payment_method", "category"]);
+const TX_TEXT_FIELDS = new Set(["description", "payment_method", "category", "notes"]);
 const TX_NUM_FIELDS = new Set(["amount_ars", "blue_rate"]);
 const TX_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -115,6 +115,10 @@ export async function updateTransaction(
         return db`UPDATE transactions
                   SET payment_method = ${v || null}, payment_method_raw = ${v || null}
                   WHERE id = ${id}`;
+      }
+      // nota libre: el "por qué" del movimiento (ej. "devolví 1455 por el robo")
+      if (field === "notes") {
+        return db`UPDATE transactions SET notes = ${v || null} WHERE id = ${id}`;
       }
       return db`UPDATE transactions SET description = ${v || null} WHERE id = ${id}`;
     });
