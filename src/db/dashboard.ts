@@ -21,11 +21,17 @@ export interface KPIs {
   egresos: number;
   balance: number;
   noches: number;
-  noches_disponibles: number; // cupo rentable del año (ventana real); 0 en global
-  ocupacion_pct: number | null; // null en global
+  noches_disponibles: number; // cupo de la ventana medida (transcurrida)
+  ocupacion_pct: number | null; // sobre lo TRANSCURRIDO (ver nota abajo)
+  ocupacion_cierre_pct: number | null; // año completo con lo ya reservado; null si el año ya cerró
   tarifa_prom: number;
   reservas: number;
 }
+
+/** Hoy en 'YYYY-MM-DD'. La ocupación se mide sobre días que YA pasaron: dividir
+ *  las noches de un año en curso por los 365 días completos da un número
+ *  artificialmente bajo (en agosto 2026 el año recién va por el 65%). */
+const hoyISO = (): string => new Date().toISOString().slice(0, 10);
 
 // --- Disponibilidad real por casa física (reglas de Mimi, 2026-07-27) --------
 // Casas físicas = 5. "Ruca Chico" NO es una sexta: es la misma casa que Ruca
@@ -92,18 +98,50 @@ function cupoAnual(year: number) {
   return { porTemporada, porCasa, casasDeTemporada, total };
 }
 
+/** Días disponibles por casa en [desde, hasta), respetando la ventana de cada
+ *  una. Es la versión libre de cupoAnual(): sirve para un mes, un año, un año a
+ *  medio andar, o varios años seguidos. */
+function cupoRango(desde: string, hasta: string): Map<string, number> {
+  const m = new Map<string, number>();
+  if (hasta <= desde) return m;
+  const [y0, m0, d0] = desde.split("-").map(Number);
+  const d = new Date(Date.UTC(y0, m0 - 1, d0));
+  for (;;) {
+    const iso = d.toISOString().slice(0, 10);
+    if (iso >= hasta) break;
+    const mes = d.getUTCMonth() + 1;
+    const dia = d.getUTCDate();
+    for (const casa of CASAS) {
+      if (disponible(casa, iso, mes, dia)) m.set(casa, (m.get(casa) ?? 0) + 1);
+    }
+    d.setUTCDate(dia + 1);
+  }
+  return m;
+}
+
+/** Fin de la ventana medida de un año: el 31/12 si ya cerró, o HOY si está en
+ *  curso (para un año futuro da el 1/1 de ese año, o sea ventana vacía). */
+function finVentana(year: number, hasta?: string): string {
+  const finAnio = `${year + 1}-01-01`;
+  if (!hasta || hasta >= finAnio) return finAnio;
+  return hasta > `${year}-01-01` ? hasta : `${year}-01-01`;
+}
+
 // Noches rentables del año para una cabaña. null = no tiene cupo propio
 // (Ruca Chico comparte casa con Ruca) o vista global.
-function capacidadCabana(cabin: string, year: number | null): number | null {
+// `hasta` acota la ventana (año en curso ⇒ pasar hoyISO()).
+function capacidadCabana(cabin: string, year: number | null, hasta?: string): number | null {
   if (year === null) return null; // global
   if (cabin === "Ruca Chico") return null; // comparte casa con Ruca
-  return cupoAnual(year).porCasa.get(phys(cabin) ?? cabin) ?? null;
+  const cupo = cupoRango(`${year}-01-01`, finVentana(year, hasta));
+  return cupo.get(phys(cabin) ?? cabin) ?? null;
 }
 
 // Cupo total del año sumando las 5 casas según su ventana real.
-function capacidadTotal(year: number | null): number {
+function capacidadTotal(year: number | null, hasta?: string): number {
   if (year === null) return 0;
-  return cupoAnual(year).total;
+  const cupo = cupoRango(`${year}-01-01`, finVentana(year, hasta));
+  return [...cupo.values()].reduce((a, b) => a + b, 0);
 }
 
 export async function getKPIs(year: number | null): Promise<KPIs> {
@@ -119,8 +157,11 @@ export async function getKPIs(year: number | null): Promise<KPIs> {
   const [egr] = await sql<{ usd: string | null }[]>`
     SELECT ROUND(SUM(usd),2) AS usd FROM v_pagos_fijos_sheet
     WHERE ${year === null ? sql`true` : sql`left(mes,4) = ${String(year)}`}`;
-  const [occ] = await sql<{ noches: string; tarifa: string | null }[]>`
-    SELECT COUNT(*) AS noches, ROUND(AVG(rate_usd),2) AS tarifa
+  const hoy = hoyISO();
+  const [occ] = await sql<{ noches: string; pasadas: string; tarifa: string | null }[]>`
+    SELECT COUNT(*) AS noches,
+           COUNT(*) FILTER (WHERE night < ${hoy}) AS pasadas,
+           ROUND(AVG(rate_usd),2) AS tarifa
     FROM reservation_nights WHERE night >= ${desde} AND night < ${hasta}`;
   const [res] = await sql<{ n: string }[]>`
     SELECT COUNT(*) AS n FROM reservations
@@ -130,25 +171,52 @@ export async function getKPIs(year: number | null): Promise<KPIs> {
   const ingresos = Number(ing?.usd ?? 0);
   const egresos = Number(egr?.usd ?? 0);
   const noches = Number(occ?.noches ?? 0);
-  // Cupo "ventana real": suma de las 5 casas según su ventana de alquiler.
-  const capacidad = capacidadTotal(year);
+  const nochesPasadas = Number(occ?.pasadas ?? 0);
+
+  // Ocupación = noches YA transcurridas / cupo transcurrido. En el global la
+  // ventana va del primer año con datos hasta hoy (las reservas futuras quedan
+  // afuera de los dos lados; si no, 2027 arrastraría el número para abajo).
+  const primerAnio = year ?? (await primerAnioConNoches());
+  const capacidad =
+    year === null
+      ? aniosHasta(primerAnio, Number(hoy.slice(0, 4))).reduce(
+          (s, y) => s + capacidadTotal(y, hoy),
+          0,
+        )
+      : capacidadTotal(year, hoy);
+  // Cómo cierra el año con lo ya reservado (solo si todavía está en curso).
+  const capacidadFull = year === null ? 0 : capacidadTotal(year);
+  const enCurso = year !== null && capacidad < capacidadFull;
+
   return {
     ingresos,
     egresos,
     balance: Math.round((ingresos - egresos) * 100) / 100,
     noches,
     noches_disponibles: capacidad,
-    ocupacion_pct: capacidad ? Math.round((noches / capacidad) * 1000) / 10 : null,
+    ocupacion_pct: capacidad ? Math.round((nochesPasadas / capacidad) * 1000) / 10 : null,
+    ocupacion_cierre_pct:
+      enCurso && capacidadFull ? Math.round((noches / capacidadFull) * 1000) / 10 : null,
     tarifa_prom: Number(occ?.tarifa ?? 0),
     reservas: Number(res?.n ?? 0),
   };
 }
 
+const aniosHasta = (desde: number, hasta: number): number[] =>
+  Array.from({ length: Math.max(0, hasta - desde + 1) }, (_, i) => desde + i);
+
+async function primerAnioConNoches(): Promise<number> {
+  const [r] = await sql<{ y: string | null }[]>`
+    SELECT to_char(MIN(night),'YYYY') AS y FROM reservation_nights`;
+  return Number(r?.y ?? new Date().getFullYear());
+}
+
 export interface CabinRow {
   cabin: string;
   noches: number;
-  disponibles: number | null; // cupo del año (ventana real); null = comparte casa
-  ocupacion_pct: number | null;
+  disponibles: number | null; // cupo del año completo; null = comparte casa
+  ocupacion_pct: number | null; // sobre lo transcurrido
+  ocupacion_cierre_pct: number | null; // año completo con lo ya reservado (año en curso)
   tarifa_prom: number;
   ingresos: number;
   ganancia_est: number; // ingresos − gastos prorrateados por noches
@@ -159,11 +227,20 @@ export async function getPorCabana(year: number | null): Promise<CabinRow[]> {
   // "Cohiue" es la grafía vieja de "Coihue" (misma casa): se normaliza acá o si
   // no la tabla y el gráfico muestran la cabaña dos veces (igual que phys(),
   // pero SIN unir Ruca con Ruca Chico, que acá van en filas separadas).
+  const hoy = hoyISO();
   const rows = await sql<
-    { cabin: string; noches: string; tarifa: string | null; revenue: string | null }[]
+    {
+      cabin: string;
+      noches: string;
+      pasadas: string;
+      tarifa: string | null;
+      revenue: string | null;
+    }[]
   >`
     SELECT CASE WHEN cabin = 'Cohiue' THEN 'Coihue' ELSE cabin END AS cabin,
-           COUNT(*) AS noches, ROUND(AVG(rate_usd),2) AS tarifa,
+           COUNT(*) AS noches,
+           COUNT(*) FILTER (WHERE night < ${hoy}) AS pasadas,
+           ROUND(AVG(rate_usd),2) AS tarifa,
            ROUND(SUM(rate_usd),2) AS revenue
     FROM reservation_nights
     WHERE night >= ${desde} AND night < ${hasta} AND cabin IS NOT NULL
@@ -176,20 +253,27 @@ export async function getPorCabana(year: number | null): Promise<CabinRow[]> {
   const totalEgresos = Number(egr?.usd ?? 0);
   const totalNoches = rows.reduce((a, r) => a + Number(r.noches), 0) || 1;
   const nochesPorCabana = new Map(rows.map((r) => [r.cabin, Number(r.noches)]));
+  const pasadasPorCabana = new Map(rows.map((r) => [r.cabin, Number(r.pasadas)]));
   return rows.map((r) => {
     const noches = Number(r.noches);
     const ingresos = Number(r.revenue ?? 0);
     const prorr = (totalEgresos * noches) / totalNoches;
-    const disponibles = capacidadCabana(r.cabin, year);
+    const disponibles = capacidadCabana(r.cabin, year); // año completo
+    const transcurridas = capacidadCabana(r.cabin, year, hoy); // hasta hoy
     // Ruca y Ruca Chico = misma casa: la ocupación de Ruca incluye las noches
     // de Ruca Chico (que no tiene cupo propio), para no subestimar la casa.
-    const nochesOcup =
-      r.cabin === "Ruca" ? noches + (nochesPorCabana.get("Ruca Chico") ?? 0) : noches;
+    const sumaChico = (n: Map<string, number>, base: number) =>
+      r.cabin === "Ruca" ? base + (n.get("Ruca Chico") ?? 0) : base;
+    const nochesOcup = sumaChico(nochesPorCabana, noches);
+    const pasadasOcup = sumaChico(pasadasPorCabana, Number(r.pasadas));
+    const enCurso = disponibles !== null && transcurridas !== null && transcurridas < disponibles;
     return {
       cabin: r.cabin,
       noches,
       disponibles,
-      ocupacion_pct: disponibles ? Math.round((nochesOcup / disponibles) * 1000) / 10 : null,
+      ocupacion_pct: transcurridas ? Math.round((pasadasOcup / transcurridas) * 1000) / 10 : null,
+      ocupacion_cierre_pct:
+        enCurso && disponibles ? Math.round((nochesOcup / disponibles) * 1000) / 10 : null,
       tarifa_prom: Number(r.tarifa ?? 0),
       ingresos,
       ganancia_est: Math.round((ingresos - prorr) * 100) / 100,
@@ -512,6 +596,77 @@ export async function getOcupacionTemporadas(year: number): Promise<Temporada[]>
       ocupacion_pct: cap ? Math.round((noches / cap) * 1000) / 10 : 0,
       revenue: r ? Number(r.revenue ?? 0) : 0,
     };
+  });
+}
+
+/** Un punto de la serie de ocupación: el eje X (año o mes) + un % por casa
+ *  (null = esa casa no estaba disponible / el período todavía no pasó). */
+export interface OccPunto {
+  x: string;
+  Total: number | null;
+  [casa: string]: number | string | null;
+}
+
+/** Cómo viene evolucionando la ocupación, casa por casa.
+ *  · global → un punto por AÑO (solo años ya transcurridos, el actual hasta hoy)
+ *  · un año → un punto por MES (los meses que todavía no pasaron van en null)
+ *  Siempre sobre días transcurridos: las reservas futuras no cuentan, así el
+ *  último punto es comparable con los anteriores y no aparece un derrumbe falso.
+ *  Ruca Chico se suma a Ruca (misma casa) y "Cohiue" a Coihue. */
+export async function getOcupacionSerie(year: number | null): Promise<OccPunto[]> {
+  const hoy = hoyISO();
+  const casaSql = sql`CASE
+      WHEN cabin IN ('Ruca','Ruca Chico') THEN 'Ruca'
+      WHEN cabin = 'Cohiue' THEN 'Coihue'
+      ELSE cabin END`;
+
+  // Arma un punto: cuenta el cupo de [desde,fin) y lo cruza con las noches.
+  const punto = (x: string, desde: string, fin: string, noches: Map<string, number>): OccPunto => {
+    const cupo = cupoRango(desde, fin);
+    const p: OccPunto = { x, Total: null };
+    let capT = 0;
+    let nT = 0;
+    for (const casa of CASAS) {
+      const cap = cupo.get(casa) ?? 0;
+      const n = noches.get(casa) ?? 0;
+      p[casa] = cap ? Math.round((n / cap) * 1000) / 10 : null;
+      capT += cap;
+      nT += n;
+    }
+    p.Total = capT ? Math.round((nT / capT) * 1000) / 10 : null;
+    return p;
+  };
+
+  if (year === null) {
+    const rows = await sql<{ p: string; c: string; n: string }[]>`
+      SELECT to_char(night,'YYYY') AS p, ${casaSql} AS c, COUNT(*) AS n
+      FROM reservation_nights
+      WHERE cabin IS NOT NULL AND night < ${hoy}
+      GROUP BY 1,2`;
+    const anios = [...new Set(rows.map((r) => r.p))].sort();
+    return anios.map((a) => {
+      const noches = new Map(
+        rows.filter((r) => r.p === a).map((r) => [r.c, Number(r.n)] as const),
+      );
+      return punto(a, `${a}-01-01`, finVentana(Number(a), hoy), noches);
+    });
+  }
+
+  const rows = await sql<{ p: string; c: string; n: string }[]>`
+    SELECT to_char(night,'MM') AS p, ${casaSql} AS c, COUNT(*) AS n
+    FROM reservation_nights
+    WHERE cabin IS NOT NULL AND night >= ${`${year}-01-01`} AND night < ${`${year + 1}-01-01`}
+      AND night < ${hoy}
+    GROUP BY 1,2`;
+  const mm = (m: number) => String(m).padStart(2, "0");
+  return MESES.map((nombre, i) => {
+    const mes = i + 1;
+    const desde = `${year}-${mm(mes)}-01`;
+    const finMes = mes === 12 ? `${year + 1}-01-01` : `${year}-${mm(mes + 1)}-01`;
+    const noches = new Map(
+      rows.filter((r) => Number(r.p) === mes).map((r) => [r.c, Number(r.n)] as const),
+    );
+    return punto(nombre, desde, finMes < hoy ? finMes : hoy, noches);
   });
 }
 

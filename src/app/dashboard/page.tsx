@@ -6,6 +6,7 @@ import {
   getGastosVariosRows,
   getKPIs,
   getMetodosPago,
+  getOcupacionSerie,
   getOcupacionTemporadas,
   getPorCabana,
   getPorPlataforma,
@@ -29,14 +30,17 @@ export default async function DashboardPage({
   const esGlobal = params.year === "global";
   const year = esGlobal ? null : Number(params.year) || new Date().getFullYear();
 
-  const [kpis, cabanas, metodos, gastosGrupo, gastosVariosRows, plataformas] = await Promise.all([
-    readWithRetry(() => getKPIs(year)),
-    readWithRetry(() => getPorCabana(year)),
-    readWithRetry(() => getMetodosPago(year)),
-    readWithRetry(() => getGastosPorGrupo(year)),
-    readWithRetry(() => getGastosVariosRows(year)),
-    readWithRetry(() => getPorPlataforma(year)),
-  ]);
+  // OJO: `max` del pool (db.ts) debe ser >= la cantidad de queries de este batch.
+  const [kpis, cabanas, metodos, gastosGrupo, gastosVariosRows, plataformas, serieOcupacion] =
+    await Promise.all([
+      readWithRetry(() => getKPIs(year)),
+      readWithRetry(() => getPorCabana(year)),
+      readWithRetry(() => getMetodosPago(year)),
+      readWithRetry(() => getGastosPorGrupo(year)),
+      readWithRetry(() => getGastosVariosRows(year)),
+      readWithRetry(() => getPorPlataforma(year)),
+      readWithRetry(() => getOcupacionSerie(year)),
+    ]);
   const serieAnual = esGlobal ? await readWithRetry(() => getSerieAnual()) : null;
   const [tarifaMes, temporadas, serieMensual] =
     year !== null
@@ -66,6 +70,7 @@ export default async function DashboardPage({
         alcance={esGlobal ? "(global)" : String(year)}
         serieAnual={serieAnual}
         serieMensual={serieMensual}
+        serieOcupacion={serieOcupacion}
         tarifaMes={tarifaMes}
         temporadas={temporadas}
         proyeccion={proyeccion}

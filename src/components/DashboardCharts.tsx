@@ -24,6 +24,7 @@ import type {
   MesSerie,
   MesTarifa,
   NamedAmount,
+  OccPunto,
   PlatformRow,
   Proyeccion,
   Temporada,
@@ -215,6 +216,7 @@ export default function DashboardCharts({
   alcance,
   serieAnual,
   serieMensual,
+  serieOcupacion,
   tarifaMes,
   temporadas,
   proyeccion,
@@ -228,6 +230,7 @@ export default function DashboardCharts({
   alcance: string;
   serieAnual: YearSerie[] | null; // solo en global
   serieMensual: MesSerie[] | null; // solo por año
+  serieOcupacion: OccPunto[]; // por año (global) o por mes (año elegido)
   tarifaMes: MesTarifa[] | null; // solo por año
   temporadas: Temporada[] | null; // solo por año
   proyeccion: Proyeccion | null; // solo año en curso / futuro
@@ -271,6 +274,15 @@ export default function DashboardCharts({
     </ResponsiveContainer>
   );
 
+  // Las casas del gráfico de ocupación salen de los datos (mismo orden que CASAS).
+  const casasOcc = useMemo(
+    () =>
+      serieOcupacion.length
+        ? Object.keys(serieOcupacion[0]).filter((k) => k !== "x" && k !== "Total")
+        : [],
+    [serieOcupacion]
+  );
+
   /** Mes a mes divergente: los egresos se dibujan hacia abajo invirtiéndoles el
    *  signo SOLO para el gráfico (en la base y en los KPIs siguen positivos).
    *  La ganancia queda al final y va sola para arriba o para abajo según el mes. */
@@ -299,9 +311,9 @@ export default function DashboardCharts({
           label="Ocupación"
           value={kpis.ocupacion_pct === null ? "—" : `${kpis.ocupacion_pct}%`}
           sub={
-            kpis.ocupacion_pct === null
-              ? "elegí un año"
-              : "sobre ventana real (sept. incluido)"
+            kpis.ocupacion_cierre_pct !== null
+              ? `hasta hoy · ${kpis.ocupacion_cierre_pct}% al cierre`
+              : "sobre lo transcurrido"
           }
         />
         <Card label="Tarifa prom / noche" value={usd0(kpis.tarifa_prom)} sub={`${kpis.reservas} reservas`} />
@@ -392,6 +404,62 @@ export default function DashboardCharts({
         </div>
       )}
 
+      {/* Cómo evoluciona la ocupación, casa por casa. Es la lectura que
+          contesta "¿estamos mejorando?": una línea por casa + el total. */}
+      {serieOcupacion.length > 0 && (
+        <Section
+          title={
+            serieAnual
+              ? "Ocupación año a año — una línea por casa"
+              : `Ocupación mes a mes ${alcance} — una línea por casa`
+          }
+          hint={
+            (serieAnual
+              ? "Ocupación de cada año ya transcurrido (el año en curso, hasta hoy). "
+              : "Ocupación de cada mes ya transcurrido. ") +
+            "Se mide solo sobre días que YA pasaron: las reservas futuras no cuentan de ningún lado, así el último punto es comparable con los anteriores y no aparece una caída falsa. Cupo según la ventana real de cada casa (Maitén solo verano; Coihue solo verano hasta el 16/03/2026); las noches de Ruca Chico cuentan en Ruca. Septiembre (uso familiar) cuenta como disponible, por eso hunde el punto de ese mes."
+          }
+        >
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={serieOcupacion} margin={{ left: 10, right: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+              <XAxis dataKey="x" tick={{ fontSize: 11 }} />
+              <YAxis
+                tick={{ fontSize: 11 }}
+                domain={[0, 100]}
+                tickFormatter={(v) => `${v}%`}
+              />
+              <Tooltip
+                // el más ocupado arriba: así se lee de una quién tira y quién no
+                itemSorter={(item) => -Number(item.value ?? 0)}
+                formatter={(v) => `${Number(v)}%`}
+              />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              {casasOcc.map((casa, i) => (
+                <Line
+                  key={casa}
+                  dataKey={casa}
+                  name={casa === "Maiten" ? "Maitén" : casa}
+                  stroke={PALETTE[i % PALETTE.length]}
+                  strokeWidth={2}
+                  connectNulls
+                  dot={{ r: 3 }}
+                />
+              ))}
+              <Line
+                dataKey="Total"
+                name="Total"
+                stroke="#111827"
+                strokeWidth={2}
+                strokeDasharray="5 4"
+                connectNulls
+                dot={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </Section>
+      )}
+
       {/* POR AÑO: tarifa por mes + ocupación por temporada */}
       {tarifaMes && temporadas && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -476,7 +544,12 @@ export default function DashboardCharts({
               <tr className="border-b border-neutral-300 text-left text-neutral-500">
                 <th className="py-1">Cabaña</th>
                 <th className="py-1 text-right">Noches</th>
-                <th className="py-1 text-right">Ocup.</th>
+                <th
+                  className="py-1 text-right"
+                  title="Ocupación sobre los días YA transcurridos. Si el año está en curso, abajo en gris va cómo cierra el año con lo que ya está reservado."
+                >
+                  Ocup.
+                </th>
                 <th
                   className="py-1 text-right"
                   title="USD por noche promedio de esa cabaña en el período (ponderado por noches vendidas). En la vista global es el promedio de todos los años."
@@ -499,6 +572,11 @@ export default function DashboardCharts({
                   </td>
                   <td className="py-1 text-right tabular-nums">
                     {c.ocupacion_pct === null ? "—" : `${c.ocupacion_pct}%`}
+                    {c.ocupacion_cierre_pct !== null && (
+                      <div className="text-[10px] text-neutral-400">
+                        {c.ocupacion_cierre_pct}% al cierre
+                      </div>
+                    )}
                   </td>
                   <td className="py-1 text-right tabular-nums">{fmtUSD(c.tarifa_prom)}</td>
                   <td className="py-1 text-right tabular-nums">{fmtUSD(c.ingresos)}</td>
