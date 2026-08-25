@@ -156,14 +156,18 @@ export interface CabinRow {
 
 export async function getPorCabana(year: number | null): Promise<CabinRow[]> {
   const { desde, hasta } = bounds(year);
+  // "Cohiue" es la grafía vieja de "Coihue" (misma casa): se normaliza acá o si
+  // no la tabla y el gráfico muestran la cabaña dos veces (igual que phys(),
+  // pero SIN unir Ruca con Ruca Chico, que acá van en filas separadas).
   const rows = await sql<
     { cabin: string; noches: string; tarifa: string | null; revenue: string | null }[]
   >`
-    SELECT cabin, COUNT(*) AS noches, ROUND(AVG(rate_usd),2) AS tarifa,
+    SELECT CASE WHEN cabin = 'Cohiue' THEN 'Coihue' ELSE cabin END AS cabin,
+           COUNT(*) AS noches, ROUND(AVG(rate_usd),2) AS tarifa,
            ROUND(SUM(rate_usd),2) AS revenue
     FROM reservation_nights
     WHERE night >= ${desde} AND night < ${hasta} AND cabin IS NOT NULL
-    GROUP BY cabin ORDER BY revenue DESC NULLS LAST`;
+    GROUP BY 1 ORDER BY revenue DESC NULLS LAST`;
   // gastos totales del período para prorratear por noches (Ajustes incluidos,
   // igual que en los KPIs: si no, la ganancia estimada no cierra con el balance)
   const [egr] = await sql<{ usd: string | null }[]>`

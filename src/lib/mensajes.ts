@@ -22,13 +22,13 @@ export const dispCabin = (name: string): string => MSG_CABIN[name] ?? name;
 export interface CabinSel {
   name: string;
   pax: number;
+  ppn: number; // valor por noche de ESA cabaña (USD); puede diferir entre cabañas
 }
 export interface ReservaData {
   guest: string;
   cabins: CabinSel[];
   checkin: string; // 'YYYY-MM-DD'
   checkout: string; // 'YYYY-MM-DD'
-  ppn: number; // valor por noche (por cabaña)
   total: number;
   senia: number;
   gastosExtra: string;
@@ -61,6 +61,19 @@ const dateParts = (field: string, d: string): Record<string, string> => {
   };
 };
 
+/** Línea "Valor por noche". Si todas las cabañas valen lo mismo sale el precio
+ *  único ("165 USD (por cabaña)"); si difieren, se desglosa cabaña por cabaña
+ *  ("150 USD (Coihue); 180 USD (Ruqui)") en vez de mostrar un promedio. */
+function valorPorNocheLine(cabins: CabinSel[]): string {
+  const multi = cabins.length > 1;
+  const uniforme = cabins.every((c) => c.ppn === (cabins[0]?.ppn ?? 0));
+  if (uniforme) {
+    return `Valor por noche: ${fmtMonto(cabins[0]?.ppn ?? 0)} USD${multi ? " (por cabaña)" : ""}`;
+  }
+  const partes = cabins.map((c) => `${fmtMonto(c.ppn)} USD (${dispCabin(c.name)})`);
+  return `Valor por noche: ${partes.join("; ")}`;
+}
+
 /** Mensaje de reserva para WhatsApp (maneja 1 o varias cabañas). */
 export function buildReservaMsg(d: ReservaData): string {
   const n = d.cabins.length;
@@ -73,7 +86,7 @@ export function buildReservaMsg(d: ReservaData): string {
     `Cabaña ${cabinsLine}`,
     `Check-in: ${ddmm(d.checkin)} a partir de las 15hs.`,
     `Check-out: ${ddmm(d.checkout)} hasta las 11hs.`,
-    `Valor por noche: ${fmtMonto(d.ppn)} USD${multi ? " (por cabaña)" : ""}`,
+    valorPorNocheLine(d.cabins),
     `Total:  USD$${fmtMonto(d.total)} ${totalSuffix}`,
     ``,
     `Seña: ${fmtMonto(d.senia)} USD`,
@@ -160,6 +173,11 @@ export function buildDatosAlquileres(reservations: ResForDatos[], opts: DatosAlq
 }
 
 /** Datos para prellenar el contrato JotForm por URL (campos que completa Mimi).
+ *
+ *  El contrato NO lleva valor por noche: la cláusula TERCERA se arma con
+ *  {precioTotal} / {senia} / {resto} / {noches}. Por eso que cada cabaña tenga
+ *  su propio precio (150 Coihue + 180 Ruqui) no lo afecta: solo cambia el
+ *  desglose del mensaje de WhatsApp; el contrato ve el total.
  *
  *  ⚠️ EL ORDEN DE LOS PARÁMETROS IMPORTA: `senia` DEBE ir antes que `precioTotal`.
  *  En el form, el texto del contrato (campo 52) se arma con "replace tags"

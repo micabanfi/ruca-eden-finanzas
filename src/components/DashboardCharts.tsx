@@ -59,6 +59,18 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 
 const usd0 = (n: number) => `USD$${Math.round(n).toLocaleString("es-AR")}`;
 
+/** Orden de las filas del tooltip. Recharts ordena por NOMBRE por default
+ *  (`itemSorter: "name"`), así que "Ingresos / Egresos / Ganancia" salía
+ *  alfabético: Egresos, Ganancia, Ingresos. Con esto se lee como corresponde:
+ *  primero lo que entra, después lo que sale, y al final el neto. */
+const ordenTooltip =
+  (nombres: string[]) =>
+  (item: { name?: string | number }): number => {
+    const i = nombres.indexOf(String(item.name ?? ""));
+    return i === -1 ? nombres.length : i;
+  };
+const ORDEN_IEG = ordenTooltip(["Ingresos", "Egresos", "Ganancia"]);
+
 /** Torta de Gastos Varios con desglose: al clickear una porción (o su leyenda)
  *  se abre la lista de movimientos que la componen. Los totales de la torta se
  *  agregan acá desde las MISMAS filas que muestra la tabla, así el desglose
@@ -286,7 +298,11 @@ export default function DashboardCharts({
         <Card
           label="Ocupación"
           value={kpis.ocupacion_pct === null ? "—" : `${kpis.ocupacion_pct}%`}
-          sub={kpis.ocupacion_pct === null ? "elegí un año" : "sobre ventana real (sin sept.)"}
+          sub={
+            kpis.ocupacion_pct === null
+              ? "elegí un año"
+              : "sobre ventana real (sept. incluido)"
+          }
         />
         <Card label="Tarifa prom / noche" value={usd0(kpis.tarifa_prom)} sub={`${kpis.reservas} reservas`} />
       </div>
@@ -329,6 +345,7 @@ export default function DashboardCharts({
                 tickFormatter={(v) => `${Math.round(Math.abs(Number(v)) / 1000)}k`}
               />
               <Tooltip
+                itemSorter={ORDEN_IEG}
                 formatter={(v, name) => [
                   fmtUSD(name === "Egresos" ? Math.abs(Number(v)) : Number(v)),
                   name,
@@ -353,7 +370,7 @@ export default function DashboardCharts({
                 <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
                 <XAxis dataKey="anio" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
-                <Tooltip formatter={(v) => fmtUSD(Number(v))} />
+                <Tooltip itemSorter={ORDEN_IEG} formatter={(v) => fmtUSD(Number(v))} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Bar dataKey="ingresos" name="Ingresos" fill="#15803d" />
                 <Bar dataKey="egresos" name="Egresos" fill="#dc2626" />
@@ -439,13 +456,16 @@ export default function DashboardCharts({
         {/* Por cabaña: ganancia estimada vs ingresos */}
         <Section
           title="Por cabaña — ingresos vs ganancia estimada"
-          hint="Ganancia estimada = ingresos − gastos compartidos prorrateados por noches (estimación). Noches = vendidas / disponibles en el año: año completo menos septiembre (uso familiar); Maiten solo verano (60); Ruca Chico no tiene cupo propio (misma casa que Ruca, sus noches cuentan en Ruca)."
+          hint="Ganancia estimada = ingresos − gastos compartidos prorrateados por noches vendidas (estimación: reparte TODOS los egresos por noche, no mide el consumo real de cada casa). Noches = vendidas / disponibles en el año: Alerce, Ruca y Ruqui todo el año; Maitén solo verano; Coihue solo verano hasta el 16/03/2026 y todo el año desde ahí. Septiembre es de uso familiar pero igual cuenta como disponible (la casa está, no alquilarla es decisión propia). Ruca Chico no tiene cupo propio (misma casa que Ruca: sus noches cuentan en la ocupación de Ruca). Tarifa = USD por noche promedio del período, ponderado por noches vendidas."
         >
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={cabanas} margin={{ left: 10, right: 10 }}>
               <XAxis dataKey="cabin" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
-              <Tooltip formatter={(v) => fmtUSD(Number(v))} />
+              <Tooltip
+                itemSorter={ordenTooltip(["Ingresos", "Ganancia est."])}
+                formatter={(v) => fmtUSD(Number(v))}
+              />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Bar dataKey="ingresos" name="Ingresos" fill="#15803d" />
               <Bar dataKey="ganancia_est" name="Ganancia est." fill="#0e7490" />
@@ -457,7 +477,12 @@ export default function DashboardCharts({
                 <th className="py-1">Cabaña</th>
                 <th className="py-1 text-right">Noches</th>
                 <th className="py-1 text-right">Ocup.</th>
-                <th className="py-1 text-right">Tarifa</th>
+                <th
+                  className="py-1 text-right"
+                  title="USD por noche promedio de esa cabaña en el período (ponderado por noches vendidas). En la vista global es el promedio de todos los años."
+                >
+                  Tarifa
+                </th>
                 <th className="py-1 text-right">Ingresos</th>
                 <th className="py-1 text-right">Gan. est.</th>
               </tr>

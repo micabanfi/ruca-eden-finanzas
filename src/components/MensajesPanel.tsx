@@ -8,6 +8,7 @@ import {
   buildJotformUrl,
   buildReservaMsg,
   CABIN_PAX,
+  dispCabin,
   nightsBetween,
   type CabinSel,
   type ReservaData,
@@ -22,9 +23,11 @@ export default function MensajesPanel() {
   const [cabins, setCabins] = useState<CabinSel[]>([]);
   const [checkin, setCheckin] = useState("");
   const [checkout, setCheckout] = useState("");
-  // precio: un solo input "primario" (valor x noche o total) y el otro se deriva
-  const [priceMode, setPriceMode] = useState<"ppn" | "total">("ppn");
-  const [priceInput, setPriceInput] = useState("");
+  // precio: cada cabaña tiene su valor x noche (pueden diferir). El Total se
+  // deriva de esos precios; si en cambio se escribe el Total a mano
+  // (`totalInput` ≠ null) manda ese número y los precios x noche se muestran
+  // repartidos en partes iguales, listos para retocar a mano.
+  const [totalInput, setTotalInput] = useState<string | null>(null);
   const [seniaInput, setSeniaInput] = useState<string | null>(null); // null = auto 20%
   const [gastosInput, setGastosInput] = useState<string | null>(null); // null = auto
   const [deposito, setDeposito] = useState("300");
@@ -35,9 +38,13 @@ export default function MensajesPanel() {
 
   const nights = nightsBetween(checkin, checkout);
   const factor = nights * cabins.length;
-  const priceNum = Number(priceInput) || 0;
-  const ppnNum = priceMode === "ppn" ? priceNum : factor > 0 ? Math.round(priceNum / factor) : 0;
-  const totalNum = priceMode === "total" ? priceNum : Math.round(priceNum * factor);
+  const sumPpn = cabins.reduce((s, c) => s + (c.ppn || 0), 0);
+  const totalNum = totalInput === null ? Math.round(sumPpn * nights) : Number(totalInput) || 0;
+  // precios efectivos: los cargados, o el total repartido en partes iguales
+  const cabinsPriced: CabinSel[] =
+    totalInput === null
+      ? cabins
+      : cabins.map((c) => ({ ...c, ppn: factor > 0 ? Math.round(totalNum / factor) : 0 }));
   const seniaNum = seniaInput === null ? Math.round(totalNum * 0.2) : Number(seniaInput) || 0;
   const gastosAuto =
     "Leña según consumo" + (cabins.some((c) => c.name === "Maiten") ? " + garrafa de gas" : "");
@@ -46,10 +53,9 @@ export default function MensajesPanel() {
 
   const data: ReservaData = {
     guest,
-    cabins,
+    cabins: cabinsPriced,
     checkin,
     checkout,
-    ppn: ppnNum,
     total: totalNum,
     senia: seniaNum,
     gastosExtra: gastosVal,
@@ -63,11 +69,20 @@ export default function MensajesPanel() {
     setCabins((prev) =>
       prev.some((c) => c.name === name)
         ? prev.filter((c) => c.name !== name)
-        : [...prev, { name, pax: CABIN_PAX[name] ?? 2 }],
+        : // la cabaña nueva arranca con el precio de la primera ya elegida
+          [...prev, { name, pax: CABIN_PAX[name] ?? 2, ppn: cabinsPriced[0]?.ppn ?? 0 }],
     );
   }
   function setPax(name: string, pax: number) {
     setCabins((prev) => prev.map((c) => (c.name === name ? { ...c, pax } : c)));
+  }
+  /** Tocar un precio x noche vuelve al modo "precio manda": se congelan los
+   *  precios que se estaban viendo (por si venían repartidos desde el Total) y
+   *  se cambia el de esa cabaña. El Total pasa a derivarse de ellos. */
+  function setPpn(name: string, ppn: number) {
+    setShortCode(null);
+    setCabins(cabinsPriced.map((c) => (c.name === name ? { ...c, ppn } : c)));
+    setTotalInput(null);
   }
 
   function generarLink() {
@@ -83,8 +98,7 @@ export default function MensajesPanel() {
     });
   }
 
-  const ppnField = priceMode === "ppn" ? priceInput : ppnNum ? String(ppnNum) : "";
-  const totalField = priceMode === "total" ? priceInput : totalNum ? String(totalNum) : "";
+  const totalField = totalInput === null ? (totalNum ? String(totalNum) : "") : totalInput;
   const shortUrl =
     shortCode && typeof window !== "undefined" ? `${window.location.origin}/c/${shortCode}` : "";
 
@@ -160,19 +174,33 @@ export default function MensajesPanel() {
           <span className="self-end pb-1 text-xs text-neutral-500">{nights} noche{nights === 1 ? "" : "s"}</span>
         </div>
 
-        <div className="flex flex-wrap gap-3">
-          <label className={lbl}>
-            Valor x noche (USD){cabins.length > 1 ? " · por cabaña" : ""}
-            <input
-              type="number" className={`${input} w-32 text-right`} value={ppnField}
-              onChange={(e) => { setPriceMode("ppn"); setPriceInput(e.target.value); setShortCode(null); }}
-            />
-          </label>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className={lbl}>
+            Valor x noche (USD){cabins.length > 1 ? " · uno por cabaña" : ""}
+            <div className="flex flex-wrap items-end gap-2">
+              {cabinsPriced.length === 0 && (
+                <span className="pb-1 text-neutral-400">elegí una cabaña</span>
+              )}
+              {cabinsPriced.map((c) => (
+                <span key={c.name} className="flex flex-col gap-0.5">
+                  {cabins.length > 1 && (
+                    <span className="text-[10px] text-neutral-500">{dispCabin(c.name)}</span>
+                  )}
+                  <input
+                    type="number"
+                    className={`${input} w-24 text-right`}
+                    value={c.ppn ? String(c.ppn) : ""}
+                    onChange={(e) => setPpn(c.name, Number(e.target.value))}
+                  />
+                </span>
+              ))}
+            </div>
+          </div>
           <label className={lbl}>
             Total (USD)
             <input
               type="number" className={`${input} w-32 text-right`} value={totalField}
-              onChange={(e) => { setPriceMode("total"); setPriceInput(e.target.value); setShortCode(null); }}
+              onChange={(e) => { setTotalInput(e.target.value); setShortCode(null); }}
             />
           </label>
           <label className={lbl}>
