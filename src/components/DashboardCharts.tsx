@@ -524,7 +524,7 @@ export default function DashboardCharts({
         {/* Por cabaña: ganancia estimada vs ingresos */}
         <Section
           title="Por cabaña — ingresos vs ganancia estimada"
-          hint="Ganancia estimada = ingresos − gastos compartidos prorrateados por noches vendidas (estimación: reparte TODOS los egresos por noche, no mide el consumo real de cada casa). Noches = vendidas / disponibles en el año: Alerce, Ruca y Ruqui todo el año; Maitén solo verano; Coihue solo verano hasta el 16/03/2026 y todo el año desde ahí. Septiembre es de uso familiar pero igual cuenta como disponible (la casa está, no alquilarla es decisión propia). Ruca Chico no tiene cupo propio (misma casa que Ruca: sus noches cuentan en la ocupación de Ruca). Tarifa = USD por noche promedio del período, ponderado por noches vendidas. RevPAN = USD por noche DISPONIBLE (tarifa × ocupación): es el número que dice si conviene bajar el precio para llenar más."
+          hint="Margen = ingresos − costos variables (los que aparecen por alquilar): es lo que deja la casa antes de la estructura, y el número que contesta si conviene alquilar barato en vez de dejarla vacía. Ganancia estimada = lo mismo pero cargándole además obras, sueldos, impuestos e internet, así las 6 filas suman el balance del período. Los egresos se imputan donde se generan: el gas por tiros balanceados × noches (medidor de Ruca por un lado, la línea compartida de Ruqui/Alerce/Coihue por otro; Maitén va con tubo y lo paga el inquilino), la luz por medidor, la limpieza y la lavandería por RECAMBIO ponderado por horas (Ruca Chico son 4 hs y media ropa blanca, no 8), y el resto (sueldos, impuestos, internet, agua, obras, casa del casero) por noches. Sigue siendo una estimación, pero ya no castiga a la casa chica por ser chica. Noches = vendidas / disponibles en el año: Alerce, Ruca y Ruqui todo el año; Maitén solo verano; Coihue solo verano hasta el 16/03/2026 y todo el año desde ahí. Septiembre es de uso familiar pero igual cuenta como disponible (la casa está, no alquilarla es decisión propia). Ruca Chico no tiene cupo propio (misma casa que Ruca: sus noches cuentan en la ocupación de Ruca). Tarifa = USD por noche promedio del período, ponderado por noches vendidas. RevPAN = USD por noche DISPONIBLE (tarifa × ocupación): es el número que dice si conviene bajar el precio para llenar más."
         >
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={cabanas} margin={{ left: 10, right: 10 }}>
@@ -539,7 +539,8 @@ export default function DashboardCharts({
               <Bar dataKey="ganancia_est" name="Ganancia est." fill="#0e7490" />
             </BarChart>
           </ResponsiveContainer>
-          <table className="mt-2 w-full border-collapse text-xs">
+          <div className="mt-2 overflow-x-auto">
+          <table className="w-full min-w-[34rem] border-collapse text-xs">
             <thead>
               <tr className="border-b border-neutral-300 text-left text-neutral-500">
                 <th className="py-1">Cabaña</th>
@@ -563,7 +564,18 @@ export default function DashboardCharts({
                   RevPAN
                 </th>
                 <th className="py-1 text-right">Ingresos</th>
-                <th className="py-1 text-right">Gan. est.</th>
+                <th
+                  className="py-1 text-right"
+                  title="Margen = ingresos − costos VARIABLES (gas, luz, limpieza y lavandería imputados a esa casa). Es lo que deja alquilar, antes de los gastos que existen igual con la casa vacía (sueldos, impuestos, internet, obras, muebles). Es el número que contesta si conviene alquilar barato en vez de dejarla vacía."
+                >
+                  Margen
+                </th>
+                <th
+                  className="py-1 text-right"
+                  title="Ganancia estimada = ingresos − TODOS los egresos del período imputados a esa casa, obras y estructura incluidas. Las 6 filas suman el balance del período. Ojo: reparte las obras y los gastos varios por noche vendida, así que una casa que vende noches baratas se lleva la misma carga estructural que una cara."
+                >
+                  Gan. est.
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -574,6 +586,11 @@ export default function DashboardCharts({
                     {c.noches}
                     {c.disponibles !== null && (
                       <span className="text-neutral-400"> / {c.disponibles}</span>
+                    )}
+                    {c.recambios > 0 && (
+                      <div className="text-[10px] text-neutral-400">
+                        {c.recambios} recambio{c.recambios === 1 ? "" : "s"}
+                      </div>
                     )}
                   </td>
                   <td className="py-1 text-right tabular-nums">
@@ -591,7 +608,14 @@ export default function DashboardCharts({
                   <td className="py-1 text-right tabular-nums">{fmtUSD(c.ingresos)}</td>
                   <td
                     className={`py-1 text-right font-medium tabular-nums ${
-                      c.ganancia_est < 0 ? "text-red-700" : "text-green-800"
+                      c.margen < 0 ? "text-red-700" : "text-green-800"
+                    }`}
+                  >
+                    {fmtUSD(c.margen)}
+                  </td>
+                  <td
+                    className={`py-1 text-right tabular-nums ${
+                      c.ganancia_est < 0 ? "text-red-700" : "text-neutral-600"
                     }`}
                   >
                     {fmtUSD(c.ganancia_est)}
@@ -600,6 +624,7 @@ export default function DashboardCharts({
               ))}
             </tbody>
           </table>
+          </div>
         </Section>
 
         {/* Plataforma */}

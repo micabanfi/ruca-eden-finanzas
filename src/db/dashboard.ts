@@ -46,6 +46,37 @@ const hoyISO = (): string => new Date().toISOString().slice(0, 10);
 export const CASAS = ["Alerce", "Coihue", "Maiten", "Ruca", "Ruqui"];
 const COIHUE_TODO_EL_ANIO_DESDE = "2026-03-16";
 
+// --- Consumo por cabaña (datos de Mimi, 2026-08-25) -------------------------
+// Se usan para repartir los egresos variables en vez de tirar todo por noche
+// pareja (que castigaba a Ruca Chico por ser chica).
+//   tb = tiros balanceados encendidos → proxy del consumo de gas.
+//   hs = horas de limpieza de un recambio de inquilinos.
+// · Maitén no tiene línea de gas: va con tubo y normalmente lo paga el
+//   inquilino (1 tubo cada 3-4 días en verano) ⇒ tb 0, no carga gas.
+// · Ruqui ya NO tiene tiros balanceados: desde la obra de junio 2026 va con
+//   radiadores + caldera y todavía no llegó una factura que la muestre. El 8 es
+//   PROVISORIO: la factura compartida (USD 1.336 en 2026) da ~59 USD por tiro,
+//   el mismo valor que la de Ruca, lo que implica ~8 para Ruqui. Actualizar
+//   cuando se sepa cuánto gasta la caldera.
+const CONSUMO: Record<string, { tb: number; hs: number }> = {
+  Alerce: { tb: 8, hs: 8 },
+  Coihue: { tb: 7, hs: 8 },
+  Maiten: { tb: 0, hs: 8 },
+  Ruca: { tb: 10, hs: 8 },
+  "Ruca Chico": { tb: 4, hs: 4 },
+  Ruqui: { tb: 8, hs: 8 },
+};
+
+// Medidores: quién paga cada factura (ver descripciones en transactions).
+//   Gas Ruca  / Luz Ruca → medidor propio de la casa Ruca (Ruca + Ruca Chico)
+//   Gas Ruqui            → línea COMPARTIDA Ruqui + Alerce + Coihue
+//   Luz CEB              → luz de todo lo que no es Ruca
+//   Gas/Agua Casero      → casa del casero: no es de ninguna cabaña, va al pozo
+//                          común junto con sueldos, impuestos, obras, etc.
+const CASA_RUCA = ["Ruca", "Ruca Chico"];
+const LINEA_GAS_COMPARTIDA = ["Ruqui", "Alerce", "Coihue"];
+const LUZ_COMPARTIDA = ["Ruqui", "Alerce", "Coihue", "Maiten"];
+
 export const TEMPORADAS = [
   "Verano (alta)",
   "Otoño (baja)",
@@ -224,8 +255,83 @@ export interface CabinRow {
   ocupacion_cierre_pct: number | null; // año completo con lo ya reservado (año en curso)
   tarifa_prom: number;
   revpan: number | null; // USD por noche DISPONIBLE = tarifa × ocupación
+  recambios: number; // entradas-salidas (reservas) del período
   ingresos: number;
-  ganancia_est: number; // ingresos − gastos prorrateados por noches
+  margen: number; // ingresos − costos VARIABLES (gas, luz, limpieza, lavandería)
+  ganancia_est: number; // ingresos − egresos imputados (ver repartirEgresos)
+}
+
+/** Reparte `monto` entre cabañas según `pesos`. Devuelve null si no hay ningún
+ *  peso (ej. la línea de gas compartida en un período sin noches en esas
+ *  casas): el que llama lo manda al pozo común para no perder plata en el
+ *  camino — la suma de las ganancias estimadas tiene que seguir cerrando con
+ *  el balance. */
+function repartir(monto: number, pesos: Map<string, number>): Map<string, number> | null {
+  const total = [...pesos.values()].reduce((a, b) => a + b, 0);
+  if (!total) return null;
+  const out = new Map<string, number>();
+  for (const [cabin, w] of pesos) out.set(cabin, (monto * w) / total);
+  return out;
+}
+
+/** Egresos imputados a cada cabaña.
+ *
+ *  El prorrateo viejo repartía TODO por noche pareja, así que cada noche de
+ *  Ruca Chico cargaba lo mismo que una de Ruca grande: mismos 10 tiros
+ *  balanceados, mismas 8 toallas, mismas 8 horas de limpieza. Ninguna de las
+ *  tres cosas es cierta (Mimi, 2026-08-25), y por eso Ruca Chico aparecía como
+ *  la única con ganancia negativa. Ahora cada gasto va por donde realmente se
+ *  genera:
+ *    · gas del medidor de Ruca ....... Ruca / Ruca Chico, por tiros × noches
+ *    · gas de la línea compartida .... Ruqui / Alerce / Coihue, por tiros × noches
+ *    · luz del medidor de Ruca ....... Ruca / Ruca Chico, por noches
+ *    · luz CEB (el resto) ............ las otras cuatro casas, por noches
+ *    · limpieza + lavandería ......... por RECAMBIO, ponderado por horas
+ *    · todo lo demás ................. por noches, como antes
+ *  (sueldos, impuestos, internet, agua, obras y el gas/agua del casero caen en
+ *  "todo lo demás": no son atribuibles a una cabaña).
+ *  Maitén no recibe gas: usa tubo y normalmente lo paga el inquilino. */
+function repartirEgresos(
+  buckets: Map<string, number>,
+  noches: Map<string, number>,
+  recambios: Map<string, number>,
+): { total: Map<string, number>; variable: Map<string, number> } {
+  const imputado = new Map<string, number>();
+  // Aparte se acumula solo lo VARIABLE (gas, luz, limpieza, lavandería): lo que
+  // realmente aparece por alquilar una noche más. El resto —sueldos, impuestos,
+  // internet, obras, muebles, juicios— existe igual con la casa vacía, así que
+  // repartirlo por noche hace que cualquier noche barata parezca que pierde.
+  const variable = new Map<string, number>();
+  const sumar = (m: Map<string, number>, esVariable: boolean) => {
+    for (const [cabin, v] of m) {
+      imputado.set(cabin, (imputado.get(cabin) ?? 0) + v);
+      if (esVariable) variable.set(cabin, (variable.get(cabin) ?? 0) + v);
+    }
+  };
+  const pesos = (cabins: string[], peso: (c: string) => number) =>
+    new Map(cabins.filter((c) => noches.has(c)).map((c) => [c, peso(c)] as const));
+
+  const porTiros = (c: string) => (CONSUMO[c]?.tb ?? 0) * (noches.get(c) ?? 0);
+  const porNoches = (c: string) => noches.get(c) ?? 0;
+  const porRecambio = (c: string) => (CONSUMO[c]?.hs ?? 8) * (recambios.get(c) ?? 0);
+
+  const todas = [...noches.keys()];
+  let general = buckets.get("general") ?? 0;
+  const tirar = (monto: number, cabins: string[], peso: (c: string) => number) => {
+    if (!monto) return;
+    const r = repartir(monto, pesos(cabins, peso));
+    if (r) sumar(r, true);
+    else general += monto; // sin base para repartir → al pozo común
+  };
+
+  tirar(buckets.get("gas_ruca") ?? 0, CASA_RUCA, porTiros);
+  tirar(buckets.get("gas_compartido") ?? 0, LINEA_GAS_COMPARTIDA, porTiros);
+  tirar(buckets.get("luz_ruca") ?? 0, CASA_RUCA, porNoches);
+  tirar(buckets.get("luz_compartida") ?? 0, LUZ_COMPARTIDA, porNoches);
+  tirar(buckets.get("recambio") ?? 0, todas, porRecambio);
+  const resto = repartir(general, pesos(todas, porNoches));
+  if (resto) sumar(resto, false);
+  return { total: imputado, variable };
 }
 
 export async function getPorCabana(year: number | null): Promise<CabinRow[]> {
@@ -253,14 +359,40 @@ export async function getPorCabana(year: number | null): Promise<CabinRow[]> {
     FROM reservation_nights
     WHERE night >= ${desde} AND night < ${hasta} AND cabin IS NOT NULL
     GROUP BY 1 ORDER BY revenue DESC NULLS LAST`;
-  // gastos totales del período para prorratear por noches (Ajustes incluidos,
-  // igual que en los KPIs: si no, la ganancia estimada no cierra con el balance)
-  const [egr] = await sql<{ usd: string | null }[]>`
-    SELECT ROUND(SUM(amount_usd),2) AS usd FROM transactions
-    WHERE kind='egreso' AND date >= ${desde} AND date < ${hasta}`;
-  const totalEgresos = Number(egr?.usd ?? 0);
-  const totalNoches = rows.reduce((a, r) => a + Number(r.noches), 0) || 1;
+  // Egresos del período agrupados por MEDIDOR / tipo de gasto, para poder
+  // imputarlos donde se generan (ver repartirEgresos). Los Ajustes entran en
+  // "general", igual que en los KPIs: si no, la ganancia estimada no cierra con
+  // el balance. Todas las categorías caen en exactamente un bucket.
+  const egr = await sql<{ bucket: string; usd: string | null }[]>`
+    SELECT CASE
+             WHEN category = 'Gas Ruca'  THEN 'gas_ruca'
+             WHEN category = 'Gas Ruqui' THEN 'gas_compartido'
+             WHEN category = 'Luz Ruca'  THEN 'luz_ruca'
+             WHEN category = 'Luz CEB'   THEN 'luz_compartida'
+             WHEN category IN ('Limpieza Casera','Limpieza Juana','Costo IN/OUT')
+               THEN 'recambio'
+             WHEN category = 'Gastos Varios'
+                  AND description ~* ${RE_LAVANDERIA}
+                  AND description !~* ${RE_LAVANDERIA_EXCEPCIONES} THEN 'recambio'
+             ELSE 'general'
+           END AS bucket,
+           ROUND(SUM(amount_usd),2) AS usd
+    FROM transactions
+    WHERE kind='egreso' AND date >= ${desde} AND date < ${hasta}
+    GROUP BY 1`;
+  const buckets = new Map(egr.map((r) => [r.bucket, Number(r.usd ?? 0)]));
+  // Recambios = entradas-salidas. La limpieza y la lavandería se pagan por
+  // recambio, no por noche: una estadía de 3 noches ensucia lo mismo que una
+  // de 10.
+  const res = await sql<{ cabin: string; n: string }[]>`
+    SELECT CASE WHEN cabin = 'Cohiue' THEN 'Coihue' ELSE cabin END AS cabin, COUNT(*) AS n
+    FROM reservations
+    WHERE cabin <> 'TODAS' AND cancelled_at IS NULL
+      AND checkin >= ${desde} AND checkin < ${hasta}
+    GROUP BY 1`;
+  const recambiosPorCabana = new Map(res.map((r) => [r.cabin, Number(r.n)]));
   const nochesPorCabana = new Map(rows.map((r) => [r.cabin, Number(r.noches)]));
+  const egresoPorCabana = repartirEgresos(buckets, nochesPorCabana, recambiosPorCabana);
   const pasadasPorCabana = new Map(rows.map((r) => [r.cabin, Number(r.pasadas)]));
   const revenuePasado = new Map(rows.map((r) => [r.cabin, Number(r.revenue_pasado ?? 0)]));
   // En global la ventana arranca en el primer año con noches (y llega hasta hoy),
@@ -271,7 +403,7 @@ export async function getPorCabana(year: number | null): Promise<CabinRow[]> {
   return rows.map((r) => {
     const noches = Number(r.noches);
     const ingresos = Number(r.revenue ?? 0);
-    const prorr = (totalEgresos * noches) / totalNoches;
+    const prorr = egresoPorCabana.total.get(r.cabin) ?? 0;
     // en global el cupo "completo" no significa nada: se muestra el transcurrido
     const disponibles = capacidadCabana(r.cabin, year === null ? cupoHoy : cupoFull);
     const transcurridas = capacidadCabana(r.cabin, cupoHoy);
@@ -296,7 +428,9 @@ export async function getPorCabana(year: number | null): Promise<CabinRow[]> {
         enCurso && disponibles ? Math.round((nochesOcup / disponibles) * 1000) / 10 : null,
       tarifa_prom: Number(r.tarifa ?? 0),
       revpan: transcurridas ? Math.round((revPasado / transcurridas) * 100) / 100 : null,
+      recambios: recambiosPorCabana.get(r.cabin) ?? 0,
       ingresos,
+      margen: Math.round((ingresos - (egresoPorCabana.variable.get(r.cabin) ?? 0)) * 100) / 100,
       ganancia_est: Math.round((ingresos - prorr) * 100) / 100,
     };
   });
