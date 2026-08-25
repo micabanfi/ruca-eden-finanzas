@@ -127,13 +127,18 @@ function finVentana(year: number, hasta?: string): string {
   return hasta > `${year}-01-01` ? hasta : `${year}-01-01`;
 }
 
-// Noches rentables del año para una cabaña. null = no tiene cupo propio
-// (Ruca Chico comparte casa con Ruca) o vista global.
-// `hasta` acota la ventana (año en curso ⇒ pasar hoyISO()).
-function capacidadCabana(cabin: string, year: number | null, hasta?: string): number | null {
-  if (year === null) return null; // global
-  if (cabin === "Ruca Chico") return null; // comparte casa con Ruca
-  const cupo = cupoRango(`${year}-01-01`, finVentana(year, hasta));
+/** Cupo por casa de la ventana que se está midiendo: un año, o —en la vista
+ *  global— desde el primer año con datos. `hasta` la acota (hoy). */
+function cupoVentana(year: number | null, primerAnio: number, hasta?: string): Map<string, number> {
+  if (year !== null) return cupoRango(`${year}-01-01`, finVentana(year, hasta));
+  const fin = hasta ?? `${new Date().getUTCFullYear() + 1}-01-01`;
+  return cupoRango(`${primerAnio}-01-01`, fin);
+}
+
+/** Cupo de UNA cabaña dentro de ese mapa. null = no tiene cupo propio: Ruca
+ *  Chico comparte casa con Ruca, así que sus noches se le imputan a Ruca. */
+function capacidadCabana(cabin: string, cupo: Map<string, number>): number | null {
+  if (cabin === "Ruca Chico") return null;
   return cupo.get(phys(cabin) ?? cabin) ?? null;
 }
 
@@ -214,10 +219,11 @@ async function primerAnioConNoches(): Promise<number> {
 export interface CabinRow {
   cabin: string;
   noches: number;
-  disponibles: number | null; // cupo del año completo; null = comparte casa
+  disponibles: number | null; // cupo de la ventana; null = comparte casa
   ocupacion_pct: number | null; // sobre lo transcurrido
   ocupacion_cierre_pct: number | null; // año completo con lo ya reservado (año en curso)
   tarifa_prom: number;
+  revpan: number | null; // USD por noche DISPONIBLE = tarifa × ocupación
   ingresos: number;
   ganancia_est: number; // ingresos − gastos prorrateados por noches
 }
@@ -235,13 +241,15 @@ export async function getPorCabana(year: number | null): Promise<CabinRow[]> {
       pasadas: string;
       tarifa: string | null;
       revenue: string | null;
+      revenue_pasado: string | null;
     }[]
   >`
     SELECT CASE WHEN cabin = 'Cohiue' THEN 'Coihue' ELSE cabin END AS cabin,
            COUNT(*) AS noches,
            COUNT(*) FILTER (WHERE night < ${hoy}) AS pasadas,
            ROUND(AVG(rate_usd),2) AS tarifa,
-           ROUND(SUM(rate_usd),2) AS revenue
+           ROUND(SUM(rate_usd),2) AS revenue,
+           ROUND(SUM(rate_usd) FILTER (WHERE night < ${hoy}),2) AS revenue_pasado
     FROM reservation_nights
     WHERE night >= ${desde} AND night < ${hasta} AND cabin IS NOT NULL
     GROUP BY 1 ORDER BY revenue DESC NULLS LAST`;
@@ -254,19 +262,31 @@ export async function getPorCabana(year: number | null): Promise<CabinRow[]> {
   const totalNoches = rows.reduce((a, r) => a + Number(r.noches), 0) || 1;
   const nochesPorCabana = new Map(rows.map((r) => [r.cabin, Number(r.noches)]));
   const pasadasPorCabana = new Map(rows.map((r) => [r.cabin, Number(r.pasadas)]));
+  const revenuePasado = new Map(rows.map((r) => [r.cabin, Number(r.revenue_pasado ?? 0)]));
+  // En global la ventana arranca en el primer año con noches (y llega hasta hoy),
+  // así la ocupación y el RevPAN también salen en esa vista.
+  const primerAnio = year ?? (await primerAnioConNoches());
+  const cupoFull = cupoVentana(year, primerAnio);
+  const cupoHoy = cupoVentana(year, primerAnio, hoy);
   return rows.map((r) => {
     const noches = Number(r.noches);
     const ingresos = Number(r.revenue ?? 0);
     const prorr = (totalEgresos * noches) / totalNoches;
-    const disponibles = capacidadCabana(r.cabin, year); // año completo
-    const transcurridas = capacidadCabana(r.cabin, year, hoy); // hasta hoy
+    // en global el cupo "completo" no significa nada: se muestra el transcurrido
+    const disponibles = capacidadCabana(r.cabin, year === null ? cupoHoy : cupoFull);
+    const transcurridas = capacidadCabana(r.cabin, cupoHoy);
     // Ruca y Ruca Chico = misma casa: la ocupación de Ruca incluye las noches
     // de Ruca Chico (que no tiene cupo propio), para no subestimar la casa.
     const sumaChico = (n: Map<string, number>, base: number) =>
       r.cabin === "Ruca" ? base + (n.get("Ruca Chico") ?? 0) : base;
     const nochesOcup = sumaChico(nochesPorCabana, noches);
     const pasadasOcup = sumaChico(pasadasPorCabana, Number(r.pasadas));
-    const enCurso = disponibles !== null && transcurridas !== null && transcurridas < disponibles;
+    const enCurso =
+      year !== null && disponibles !== null && transcurridas !== null && transcurridas < disponibles;
+    // RevPAN = USD por noche DISPONIBLE. Misma base que la ocupación (lo ya
+    // transcurrido), así se cumple RevPAN ≈ tarifa × ocupación. La casa física
+    // Ruca factura con las dos camas: se le suma lo de Ruca Chico.
+    const revPasado = sumaChico(revenuePasado, Number(r.revenue_pasado ?? 0));
     return {
       cabin: r.cabin,
       noches,
@@ -275,6 +295,7 @@ export async function getPorCabana(year: number | null): Promise<CabinRow[]> {
       ocupacion_cierre_pct:
         enCurso && disponibles ? Math.round((nochesOcup / disponibles) * 1000) / 10 : null,
       tarifa_prom: Number(r.tarifa ?? 0),
+      revpan: transcurridas ? Math.round((revPasado / transcurridas) * 100) / 100 : null,
       ingresos,
       ganancia_est: Math.round((ingresos - prorr) * 100) / 100,
     };

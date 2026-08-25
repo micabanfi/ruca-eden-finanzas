@@ -524,7 +524,7 @@ export default function DashboardCharts({
         {/* Por cabaña: ganancia estimada vs ingresos */}
         <Section
           title="Por cabaña — ingresos vs ganancia estimada"
-          hint="Ganancia estimada = ingresos − gastos compartidos prorrateados por noches vendidas (estimación: reparte TODOS los egresos por noche, no mide el consumo real de cada casa). Noches = vendidas / disponibles en el año: Alerce, Ruca y Ruqui todo el año; Maitén solo verano; Coihue solo verano hasta el 16/03/2026 y todo el año desde ahí. Septiembre es de uso familiar pero igual cuenta como disponible (la casa está, no alquilarla es decisión propia). Ruca Chico no tiene cupo propio (misma casa que Ruca: sus noches cuentan en la ocupación de Ruca). Tarifa = USD por noche promedio del período, ponderado por noches vendidas."
+          hint="Ganancia estimada = ingresos − gastos compartidos prorrateados por noches vendidas (estimación: reparte TODOS los egresos por noche, no mide el consumo real de cada casa). Noches = vendidas / disponibles en el año: Alerce, Ruca y Ruqui todo el año; Maitén solo verano; Coihue solo verano hasta el 16/03/2026 y todo el año desde ahí. Septiembre es de uso familiar pero igual cuenta como disponible (la casa está, no alquilarla es decisión propia). Ruca Chico no tiene cupo propio (misma casa que Ruca: sus noches cuentan en la ocupación de Ruca). Tarifa = USD por noche promedio del período, ponderado por noches vendidas. RevPAN = USD por noche DISPONIBLE (tarifa × ocupación): es el número que dice si conviene bajar el precio para llenar más."
         >
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={cabanas} margin={{ left: 10, right: 10 }}>
@@ -556,6 +556,12 @@ export default function DashboardCharts({
                 >
                   Tarifa
                 </th>
+                <th
+                  className="py-1 text-right"
+                  title="RevPAN = USD por noche DISPONIBLE (tarifa × ocupación). Junta precio y ocupación en un número: si bajás el precio y se llena más, el RevPAN te dice si ganaste o si llenaste la casa por menos plata. Se mide sobre lo transcurrido, igual que Ocup. En Ruca incluye lo que factura Ruca Chico (misma casa). OJO: el año en curso va hasta hoy y un año cerrado va completo, así que no se comparan de frente (enero-febrero levanta mucho el promedio)."
+                >
+                  RevPAN
+                </th>
                 <th className="py-1 text-right">Ingresos</th>
                 <th className="py-1 text-right">Gan. est.</th>
               </tr>
@@ -579,6 +585,9 @@ export default function DashboardCharts({
                     )}
                   </td>
                   <td className="py-1 text-right tabular-nums">{fmtUSD(c.tarifa_prom)}</td>
+                  <td className="py-1 text-right font-medium tabular-nums">
+                    {c.revpan === null ? "—" : fmtUSD(c.revpan)}
+                  </td>
                   <td className="py-1 text-right tabular-nums">{fmtUSD(c.ingresos)}</td>
                   <td
                     className={`py-1 text-right font-medium tabular-nums ${
