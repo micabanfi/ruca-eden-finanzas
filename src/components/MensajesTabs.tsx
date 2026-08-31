@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import DatosAlquileresPanel from "@/components/DatosAlquileresPanel";
+import DisponibilidadPanel from "@/components/DisponibilidadPanel";
 import MensajesPanel from "@/components/MensajesPanel";
 import type { Reservation } from "@/db/reservations";
 
-type Tab = "mensaje" | "datos";
+type Tab = "mensaje" | "datos" | "disponibilidad";
 
 export default function MensajesTabs({
   reservations,
@@ -30,12 +31,21 @@ export default function MensajesTabs({
         <button type="button" className={btn("datos")} onClick={() => setTab("datos")}>
           Datos de alquileres
         </button>
+        <button
+          type="button"
+          className={btn("disponibilidad")}
+          onClick={() => setTab("disponibilidad")}
+        >
+          Disponibilidad
+        </button>
       </div>
 
       {tab === "mensaje" ? (
         <MensajesPanel />
-      ) : (
+      ) : tab === "datos" ? (
         <DatosAlquileresPanel reservations={reservations} invitadaIds={invitadaIds} />
+      ) : (
+        <DisponibilidadPanel reservations={reservations} />
       )}
     </div>
   );
