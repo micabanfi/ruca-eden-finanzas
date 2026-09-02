@@ -11,6 +11,7 @@ const TABS = [
   { href: "/ingresos-egresos", label: "Ingresos/Egresos" },
   { href: "/resumen", label: "Resumen" },
   { href: "/mensajes", label: "✉️ Mensajes" },
+  { href: "/servicios", label: "Servicios" },
   { href: "/asistente", label: "✨ Asistente" },
 ];
 
