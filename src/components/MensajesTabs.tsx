@@ -4,9 +4,10 @@ import { useState } from "react";
 import DatosAlquileresPanel from "@/components/DatosAlquileresPanel";
 import DisponibilidadPanel from "@/components/DisponibilidadPanel";
 import MensajesPanel from "@/components/MensajesPanel";
+import ServiciosPanel from "@/components/ServiciosPanel";
 import type { Reservation } from "@/db/reservations";
 
-type Tab = "mensaje" | "datos" | "disponibilidad";
+type Tab = "mensaje" | "datos" | "disponibilidad" | "servicios";
 
 export default function MensajesTabs({
   reservations,
@@ -38,14 +39,19 @@ export default function MensajesTabs({
         >
           Disponibilidad
         </button>
+        <button type="button" className={btn("servicios")} onClick={() => setTab("servicios")}>
+          Servicios
+        </button>
       </div>
 
       {tab === "mensaje" ? (
         <MensajesPanel />
       ) : tab === "datos" ? (
         <DatosAlquileresPanel reservations={reservations} invitadaIds={invitadaIds} />
-      ) : (
+      ) : tab === "disponibilidad" ? (
         <DisponibilidadPanel reservations={reservations} />
+      ) : (
+        <ServiciosPanel />
       )}
     </div>
   );
