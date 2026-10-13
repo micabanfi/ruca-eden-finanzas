@@ -38,6 +38,19 @@ function issuesFromDiff(d: DiffResult): Issue[] {
       } (${ddmm(o.b.start)}–${ddmm(o.b.end)})`,
     });
   }
+  for (const g of d.airbnbOpen ?? []) {
+    const last = addDays(g.end, -1);
+    out.push({
+      severity: "red",
+      start: g.start,
+      end: g.end,
+      text: `🔴 ${g.listing}: abierta en Airbnb la(s) noche(s) ${ddmm(g.start)}${
+        last !== g.start ? `–${ddmm(last)}` : ""
+      } con la casa ocupada por ${
+        g.occupant.guest ?? "—"
+      } (${g.occupant.cabin ?? "—"}) — bloquearla`,
+    });
+  }
   for (const m of d.dateMismatch) {
     out.push({
       severity: "amber",

@@ -77,6 +77,22 @@ export interface DateMismatch {
   google: { start: string; end: string }; // checkin / checkout que se deduce de Google
 }
 
+/** Noches en que la casa está ocupada pero una publicación de Airbnb de esa misma
+ *  casa física sigue abierta (ni "Reserved" ni "Not available") → alguien puede
+ *  reservar encima. Caso real: Ruca ocupada por WA, Ruca Chico abierta en Airbnb. */
+export interface AirbnbOpenGap {
+  listing: string; // publicación de Airbnb que está abierta (ej "Ruca Chico")
+  start: string; // primera noche abierta
+  end: string; // exclusivo: día siguiente a la última noche abierta
+  occupant: {
+    cabin: string | null;
+    guest: string | null;
+    platform: string | null;
+    start: string;
+    end: string;
+  };
+}
+
 export interface DiffResult {
   generatedAt: string;
   feedErrors: { label: string; error: string }[];
@@ -87,12 +103,14 @@ export interface DiffResult {
   notInGoogle: CalItem[]; // 🟡 lo nuestro (app no-Airbnb + Airbnb) que no está en Google
   googleNotInRecords: ExtEvent[]; // 🟡 Google que no está ni en la app ni en Airbnb
   overbook: OverbookPair[]; // 🔴 misma casa, fechas pisadas, reservas distintas
+  airbnbOpen: AirbnbOpenGap[]; // 🔴 casa ocupada pero Airbnb abierto esas noches
   counts: {
     airbnbNotInApp: number;
     dateMismatch: number;
     notInGoogle: number;
     googleNotInRecords: number;
     overbook: number;
+    airbnbOpen: number;
   };
 }
 

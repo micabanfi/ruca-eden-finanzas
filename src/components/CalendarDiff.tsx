@@ -4,13 +4,23 @@ import { useState, useTransition } from "react";
 import { runCalendarDiff } from "@/actions/calendar";
 // `import type` se borra al compilar, pero apuntamos igual a ical-core: desde el
 // cliente nunca hay que tocar `@/lib/ical` (node-ical/node:fs rompe el browser).
-import type { CalItem, DiffResult, ExtEvent } from "@/lib/ical-core";
+import { addDays, type CalItem, type DiffResult, type ExtEvent } from "@/lib/ical-core";
 import { fmtDate } from "@/lib/format";
 
 function Range({ start, end }: { start: string; end: string }) {
   return (
     <span className="tabular-nums">
       {fmtDate(start)} → {fmtDate(end)}
+    </span>
+  );
+}
+
+/** Noches [start, end): "noche del 27/11" o "noches del 27/11 al 29/11". */
+function Nights({ start, end }: { start: string; end: string }) {
+  const last = addDays(end, -1);
+  return (
+    <span className="tabular-nums">
+      {last === start ? <>noche del {fmtDate(start)}</> : <>noches del {fmtDate(start)} al {fmtDate(last)}</>}
     </span>
   );
 }
@@ -70,7 +80,7 @@ export default function CalendarDiff() {
   const c = res?.counts;
   const allClear =
     res && c &&
-    c.airbnbNotInApp + c.dateMismatch + c.notInGoogle + c.googleNotInRecords + c.overbook === 0 &&
+    c.airbnbNotInApp + c.dateMismatch + c.notInGoogle + c.googleNotInRecords + c.overbook + c.airbnbOpen === 0 &&
     res.unparsedGoogle.length === 0;
 
   return (
@@ -131,6 +141,29 @@ export default function CalendarDiff() {
                       </li>
                     ))}
                   </ul>
+                </div>
+              )}
+
+              {c && c.airbnbOpen > 0 && (
+                <div className={`${box} border-red-400 bg-red-50`}>
+                  <div className={`${h} text-red-800`}>
+                    🔴 AIRBNB ABIERTO con la casa ocupada — bloquealo en Airbnb ({c.airbnbOpen})
+                  </div>
+                  <ul className="space-y-1">
+                    {res.airbnbOpen.map((g, i) => (
+                      <li key={i} className="text-red-900">
+                        <span className="font-semibold">{g.listing}</span> abierta en Airbnb:{" "}
+                        <Nights start={g.start} end={g.end} /> — ocupada por{" "}
+                        {g.occupant.guest ?? "—"} · {g.occupant.cabin ?? "?"}
+                        {g.occupant.platform && <> · {g.occupant.platform}</>} (
+                        <Range start={g.occupant.start} end={g.occupant.end} />)
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-1 text-[10px] text-red-700">
+                    Ojo: la sincronización entre Ruca y Ruca Chico en Airbnb no copia los bloqueos manuales.
+                    Después de bloquear, usá ↻ forzar refresco (el cache es de 1h).
+                  </p>
                 </div>
               )}
 

@@ -83,7 +83,7 @@ export async function runCalendarDiff(force = false): Promise<DiffResponse> {
     if (active.length === 0)
       return { ok: false, error: "No hay fuentes de calendario cargadas todavía." };
 
-    const { events, feedErrors } = await loadFeeds(active, force);
+    const { events, feedErrors, airbnbListings } = await loadFeeds(active, force);
 
     const appRes: AppRes[] = reservations
       .filter((r) => !r.cancelled_at)
@@ -108,7 +108,7 @@ export async function runCalendarDiff(force = false): Promise<DiffResponse> {
     const today = generatedAt.slice(0, 10);
     return {
       ok: true,
-      result: computeDiff(appRes, googleEvents, airbnbEvents, feedErrors, generatedAt, today),
+      result: computeDiff(appRes, googleEvents, airbnbEvents, feedErrors, generatedAt, today, airbnbListings),
     };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Error inesperado" };

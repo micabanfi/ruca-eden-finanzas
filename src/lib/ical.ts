@@ -4,6 +4,7 @@ import {
   overlaps,
   phys,
   sameRange,
+  type AirbnbOpenGap,
   type AppRes,
   type CalItem,
   type DateMismatch,
@@ -217,23 +218,31 @@ export async function fetchFeedText(url: string, force = false): Promise<string>
 export async function loadFeeds(
   sources: FeedSource[],
   force = false,
-): Promise<{ events: ExtEvent[]; feedErrors: { label: string; error: string }[] }> {
+): Promise<{
+  events: ExtEvent[];
+  feedErrors: { label: string; error: string }[];
+  airbnbListings: string[]; // cabañas cuyo feed de Airbnb se bajó bien
+}> {
   const events: ExtEvent[] = [];
   const feedErrors: { label: string; error: string }[] = [];
+  const airbnbListings: string[] = [];
   const labelOf = (s: FeedSource) =>
     s.label ?? (s.kind === "google" ? "Google" : `Airbnb ${s.cabin ?? ""}`.trim());
   const settled = await Promise.allSettled(
     sources.map(async (s) => parseFeed(await fetchFeedText(s.ics_url, force), s.kind, labelOf(s), s.cabin)),
   );
   settled.forEach((r, i) => {
-    if (r.status === "fulfilled") events.push(...r.value);
-    else
+    if (r.status === "fulfilled") {
+      events.push(...r.value);
+      const s = sources[i];
+      if (s.kind === "airbnb" && s.cabin) airbnbListings.push(s.cabin);
+    } else
       feedErrors.push({
         label: labelOf(sources[i]),
         error: r.reason instanceof Error ? r.reason.message : String(r.reason),
       });
   });
-  return { events, feedErrors };
+  return { events, feedErrors, airbnbListings };
 }
 
 /** Busca la reserva de la app que corresponde a un evento de Airbnb: primero por
@@ -328,6 +337,7 @@ export function computeDiff(
   feedErrors: { label: string; error: string }[],
   generatedAt: string,
   today: string, // 'YYYY-MM-DD': el chequeo es de hoy en adelante (lo pasado no importa)
+  airbnbListings: string[] = [], // cabañas con feed de Airbnb bajado OK (para airbnbOpen)
 ): DiffResult {
   // de hoy en adelante: solo reservas que todavía no terminaron (checkout >= hoy)
   const future = appRes.filter((r) => r.checkout >= today);
@@ -397,6 +407,8 @@ export function computeDiff(
     }
   }
 
+  const airbnbOpen = computeAirbnbOpen(appAll, airbnbEvents, googleNotInRecords, airbnbListings, today);
+
   return {
     generatedAt,
     feedErrors,
@@ -407,12 +419,75 @@ export function computeDiff(
     notInGoogle,
     googleNotInRecords,
     overbook,
+    airbnbOpen,
     counts: {
       airbnbNotInApp: airbnbNotInApp.length,
       dateMismatch: dateMismatch.length,
       notInGoogle: notInGoogle.length,
       googleNotInRecords: googleNotInRecords.length,
       overbook: overbook.length,
+      airbnbOpen: airbnbOpen.length,
     },
   };
+}
+
+/** 🔴 Casa ocupada pero Airbnb abierto. Para cada noche ocupada (reserva de la app
+ *  de cualquier canal, reserva del feed de Airbnb o evento de Google que no está en
+ *  ningún registro), cada publicación de Airbnb de la MISMA casa física tiene que
+ *  tener esa noche cubierta por un "Reserved" o un "Not available". Si no, alguien
+ *  puede reservarla encima. Es lo que pasó con Ruca (WA) y Ruca Chico abierta: la
+ *  sincronización de Airbnb entre las dos publicaciones no copia los bloqueos manuales.
+ *  `airbnbListings` = cabañas cuyo feed se bajó bien (un feed caído no se acusa acá:
+ *  ya sale en feedErrors). */
+function computeAirbnbOpen(
+  appAll: AppRes[],
+  airbnbEvents: ExtEvent[], // TODOS, incluidos los bloqueos
+  googleNotInRecords: ExtEvent[],
+  airbnbListings: string[],
+  today: string,
+): AirbnbOpenGap[] {
+  const occs: { phys: string; o: AirbnbOpenGap["occupant"] }[] = [];
+  for (const r of appAll) {
+    const p = phys(r.cabin);
+    if (p) occs.push({ phys: p, o: { cabin: r.cabin, guest: r.guest_name, platform: r.platform, start: r.checkin, end: r.checkout } });
+  }
+  for (const e of airbnbEvents) {
+    if (e.blocked || !e.phys) continue;
+    occs.push({ phys: e.phys, o: { cabin: e.cabin, guest: e.guest, platform: "AirBnb", start: e.start, end: e.end } });
+  }
+  // Google: DTEND = día de salida + 1 (convención de Mimi, ver dateMismatch)
+  for (const g of googleNotInRecords) {
+    if (!g.phys) continue;
+    occs.push({
+      phys: g.phys,
+      o: { cabin: g.cabin, guest: g.guest, platform: g.platform ?? "Google", start: g.start, end: addDays(g.end, -1) },
+    });
+  }
+
+  const out: AirbnbOpenGap[] = [];
+  for (const listing of airbnbListings) {
+    const lp = phys(listing);
+    const cover = airbnbEvents.filter((e) => e.cabin === listing);
+    const covered = (n: string) => cover.some((e) => e.start <= n && n < e.end);
+    // una noche se acusa una sola vez por publicación (la misma reserva puede venir
+    // de la app y del feed de Airbnb a la vez)
+    const seen = new Set<string>();
+    for (const { phys: p, o } of occs) {
+      if (p !== lp) continue;
+      let gap: AirbnbOpenGap | null = null;
+      for (let n = o.start > today ? o.start : today; n < o.end; n = addDays(n, 1)) {
+        if (covered(n) || seen.has(n)) {
+          gap = null;
+          continue;
+        }
+        seen.add(n);
+        if (gap) gap.end = addDays(n, 1);
+        else {
+          gap = { listing, start: n, end: addDays(n, 1), occupant: o };
+          out.push(gap);
+        }
+      }
+    }
+  }
+  return out.sort((a, b) => a.start.localeCompare(b.start) || a.listing.localeCompare(b.listing));
 }
