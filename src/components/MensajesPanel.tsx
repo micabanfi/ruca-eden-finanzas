@@ -9,6 +9,7 @@ import {
   buildReservaMsg,
   CABIN_PAX,
   dispCabin,
+  MASCOTAS,
   nightsBetween,
   type CabinSel,
   type ReservaData,
@@ -288,6 +289,15 @@ export default function MensajesPanel() {
           <CopyBtn text={ACLARACIONES} />
         </div>
         <pre className="whitespace-pre-wrap rounded bg-neutral-50 p-2 text-xs text-neutral-700">{ACLARACIONES}</pre>
+      </section>
+
+      {/* mascotas */}
+      <section className="space-y-1 rounded border border-neutral-300 p-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-neutral-700">Mascotas</h2>
+          <CopyBtn text={MASCOTAS} />
+        </div>
+        <pre className="whitespace-pre-wrap rounded bg-neutral-50 p-2 text-xs text-neutral-700">{MASCOTAS}</pre>
       </section>
     </div>
   );

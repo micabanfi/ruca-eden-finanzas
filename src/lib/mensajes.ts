@@ -213,3 +213,9 @@ export const ACLARACIONES = `Te mando aclaraciones previas que me gusta hacer:
 * Tenemos un minimo de alquiler de 25 años, no aceptamos grupos de jovenes. Las cabañas tienen un ambiente familiar, no se permiten fiestas, ni música fuerte, ni mas inquilinos que los que permite cada cabaña.
 * Me gusta aclarar que nuestras cabañas son rusticas, no son cabañas modernas. Cuentan con todas las comodidades necesarias, como cocina equipada, calefacción a tiro balanceado y salamandras, están cuidadosamente mantenidas para que pasen una buena estadía. Pero por ejemplo el el agua caliente funciona con termotanques grandes, pero no es ilimitada como en un hotel.
 * Las cabañas son grandes, y si desean  reforzar la calefacción recomendamos mantener la salamandra encendida. La leña se cobra aparte dependiendo del uso.`;
+
+export const MASCOTAS = `Con respecto a las mascotas, son bienvenidas 🐾. Solo les pedimos tres cosas:
+• Que se hagan responsables de cualquier daño o rotura que pueda causar, ya que las casas tienen mucha madera y alfombra.
+• Que no queden sin supervisión, porque el jardín es compartido con otros huéspedes, que pueden tener sus propias mascotas o no sentirse cómodos con animales.
+• Que no duerman sobre las camas, ya que los edredones son blancos y se manchan o deterioran con facilidad. Si al check-out hay olor o manchas, se cobrará el lavadero de los edredones.
+¡Muchas gracias por entender! Los esperamos en Ruca Eden.`;
